@@ -1,0 +1,11 @@
+{
+  "name": "bettercare-chat",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "extract": "node src/extract.mjs data/bettercare-corpus.json",
+    "build:ext": "node tools/build-extension.mjs",
+    "test:search": "node tools/test-search.mjs",
+    "build": "npm run extract && npm run build:ext && npm run test:search"
+  }
+}

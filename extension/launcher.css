@@ -1,0 +1,77 @@
+/* The on-page launcher. Scoped by id and heavily specified so SharePoint's own
+   stylesheets can't reach it. */
+
+#bc-assistant-launcher {
+  position: fixed !important;
+  right: 20px !important;
+  bottom: 20px !important;
+  z-index: 2147483000 !important;
+
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+
+  margin: 0 !important;
+  padding: 10px 16px 10px 13px !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+
+  background: #127D94 !important;
+  color: #FFFFFF !important;
+
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif !important;
+  font-size: 13.5px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+  letter-spacing: -0.005em !important;
+
+  cursor: pointer !important;
+  box-shadow: 0 2px 6px rgba(23, 57, 74, .16), 0 10px 26px -8px rgba(23, 57, 74, .26) !important;
+  transition: transform .14s ease, box-shadow .14s ease, background .14s ease !important;
+}
+
+#bc-assistant-launcher:hover {
+  background: #0F6B7F !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 3px 8px rgba(23, 57, 74, .20), 0 14px 32px -8px rgba(23, 57, 74, .32) !important;
+}
+
+#bc-assistant-launcher:focus-visible {
+  outline: 2px solid #FFFFFF !important;
+  outline-offset: 2px !important;
+}
+
+#bc-assistant-launcher svg {
+  width: 16px !important;
+  height: 16px !important;
+  flex: 0 0 auto !important;
+  display: block !important;
+}
+
+#bc-assistant-hint {
+  position: fixed !important;
+  right: 20px !important;
+  bottom: 68px !important;
+  z-index: 2147483000 !important;
+
+  max-width: 260px !important;
+  padding: 10px 12px !important;
+  border-radius: 8px !important;
+
+  background: #FFFFFF !important;
+  color: #17394A !important;
+  border: 1px solid #E0EAF0 !important;
+
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif !important;
+  font-size: 12.5px !important;
+  line-height: 1.45 !important;
+
+  box-shadow: 0 10px 26px -8px rgba(23, 57, 74, .28) !important;
+}
+
+#bc-assistant-hint[hidden] { display: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  #bc-assistant-launcher { transition: none !important; }
+  #bc-assistant-launcher:hover { transform: none !important; }
+}

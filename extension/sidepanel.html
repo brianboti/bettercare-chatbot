@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BetterCare Assistant</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+
+  <header class="head">
+    <div class="mark" aria-hidden="true">BC</div>
+    <div class="head__name">
+      <b>BetterCare Assistant</b>
+      <span>sites/BetterCare</span>
+    </div>
+    <button class="icon-btn" id="reset" type="button" title="New conversation" aria-label="New conversation">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <path d="M12 5v14M5 12h14"></path>
+      </svg>
+    </button>
+  </header>
+
+  <div class="scope">
+    <span class="scope__dot" aria-hidden="true"></span>
+    <span><b>Answers from this site only</b></span>
+    <code id="count">loading…</code>
+  </div>
+
+  <main class="thread" id="thread" aria-live="polite"></main>
+
+  <form class="composer" id="composer">
+    <div class="composer__field">
+      <textarea id="q" rows="1" placeholder="Ask about Epic, Abridge, or Wisdom…"
+                autocomplete="off" spellcheck="false"></textarea>
+      <button class="send" id="send" type="submit" disabled aria-label="Send">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M5 12h14M13 6l6 6-6 6"></path>
+        </svg>
+      </button>
+    </div>
+    <div class="composer__foot">
+      <span>Cites the list item it used</span>
+      <span class="demo-tag" title="Local search over bundled site content. No model, no network.">Demo</span>
+    </div>
+  </form>
+
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>
