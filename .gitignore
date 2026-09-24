@@ -1,0 +1,7 @@
+.env
+node_modules/
+data/embeddings.json
+data/site/
+data/index/
+data/logs/
+.DS_Store

@@ -14,25 +14,43 @@
       <b>BetterCare Assistant</b>
       <span>sites/BetterCare</span>
     </div>
+    <button class="icon-btn" id="settings-btn" type="button" title="Settings" aria-label="Settings"
+            aria-expanded="false" aria-controls="settings">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+    </button>
     <button class="icon-btn" id="reset" type="button" title="New conversation" aria-label="New conversation">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="2" stroke-linecap="round" aria-hidden="true">
         <path d="M12 5v14M5 12h14"></path>
       </svg>
     </button>
+
+    <form class="settings" id="settings" hidden>
+      <label for="api-url">Assistant server</label>
+      <input id="api-url" type="url" spellcheck="false" autocomplete="off" placeholder="http://localhost:8787">
+      <p class="settings__hint">Run <code>npm start</code> in the project to start it.</p>
+      <div class="settings__row">
+        <span class="settings__status" id="settings-status" aria-live="polite"></span>
+        <button type="submit" class="btn">Save &amp; connect</button>
+      </div>
+    </form>
   </header>
 
-  <div class="scope">
+  <div class="scope" id="scope" data-state="checking">
     <span class="scope__dot" aria-hidden="true"></span>
-    <span><b>Answers from this site only</b></span>
-    <code id="count">loading…</code>
+    <span id="scope-label"><b>Connecting…</b></span>
+    <code id="count"></code>
   </div>
 
   <main class="thread" id="thread" aria-live="polite"></main>
 
   <form class="composer" id="composer">
     <div class="composer__field">
-      <textarea id="q" rows="1" placeholder="Ask about Epic, Abridge, or Wisdom…"
+      <textarea id="q" rows="1" placeholder="Ask anything on the BetterCare site…"
                 autocomplete="off" spellcheck="false"></textarea>
       <button class="send" id="send" type="submit" disabled aria-label="Send">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -40,10 +58,15 @@
           <path d="M5 12h14M13 6l6 6-6 6"></path>
         </svg>
       </button>
+      <button class="send send--stop" id="stop" type="button" hidden aria-label="Stop">
+        <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor"></rect>
+        </svg>
+      </button>
     </div>
     <div class="composer__foot">
-      <span>Cites the list item it used</span>
-      <span class="demo-tag" title="Local search over bundled site content. No model, no network.">Demo</span>
+      <span>Answers cite the page or document they came from</span>
+      <span class="mode-tag" id="mode-tag" title=""></span>
     </div>
   </form>
 

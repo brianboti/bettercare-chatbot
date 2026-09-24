@@ -1,161 +1,204 @@
 # bettercare-chat
 
-A chatbot that answers questions from the content of the UT Health San Antonio
-**BetterCare** SharePoint site (`/sites/BetterCare`).
+A RAG assistant for the UT Health San Antonio **BetterCare** SharePoint site
+(`/sites/BetterCare`). Ask in your own words; it searches every page, list,
+document, tip sheet and flyer on the site and answers with citations to the
+exact source.
+
+Two front ends share one backend:
+
+| Surface | What it is | Where |
+|---|---|---|
+| **Chrome extension** | Side panel next to the *real* site. Works today with no SharePoint permissions. | `extension/` |
+| **Site replica** | A local, near-pixel copy of the whole site with the assistant built in — the demo of what an SPFx integration would look like. | `site/` + `data/site/` |
+
+```
+                       ┌──────────────────────────────────────────────┐
+ Chrome extension ───▶ │ server/  (node, localhost:8787)              │
+ Site replica ───────▶ │   /api/chat    SSE: rewrite → retrieve → Claude │
+                       │   /api/search  hybrid retrieval, no LLM       │
+                       │   /sites/BetterCare/…  the replica            │
+                       └──────────────────────────────────────────────┘
+                                   ▲ data/index/chunks.json
+ SharePoint ──(1) export──▶ data/site/ ──(2) npm run ingest──┘
+```
+
+## Quick start
+
+```sh
+npm install
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env      # optional; without it: retrieval-only mode
+npm run ingest                                  # data/site -> data/index/chunks.json
+npm start                                       # http://localhost:8787
+```
+
+- **Replica:** open <http://localhost:8787>. Use the **Search or ask BetterCare**
+  box in the top bar or the **Ask BetterCare** button.
+- **Extension:** `chrome://extensions` → Developer mode → Load unpacked →
+  `extension/`. See [extension/README.md](extension/README.md).
+
+The first start embeds the corpus locally (a few minutes on CPU); later
+starts reuse `data/embeddings.json` and only embed what changed.
 
 ## Safety rule
 
-**Everything that touches SharePoint is read-only.** Only HTTP `GET` is used.
-SharePoint requires `POST` plus an `X-RequestDigest` header for any write, so
-the fetch below is structurally incapable of modifying the site. Do not add
-`POST`, `X-HTTP-Method`, or `$batch` to any script here.
+**Everything that touches SharePoint is read-only.** The exporter issues only
+HTTP `GET`s from a signed-in browser tab. Do not add `POST`, `X-HTTP-Method`,
+or `$batch` to anything here. The server never contacts SharePoint.
 
-## Pipeline
+## 1. Export (full site, read-only)
 
+SharePoint auth cookies are HttpOnly, so node can't fetch the site without an
+app registration. Instead the export runs in a signed-in Chrome tab and streams
+everything to a local receiver:
+
+```sh
+npm run export:receiver                          # listens on 127.0.0.1:8799
 ```
-SharePoint lists ──(1) read-only REST fetch──> data/bettercare-corpus.json
-                 ──(2) node src/extract.mjs ──> data/chunks.json
-                 ──(3) tools/build-extension ──> extension/  (loadable in Chrome)
-```
 
-`npm run build` runs steps 2 and 3 and the search tests. Step 1 is manual — see below.
-
-### 1. Fetch (manual, browser DevTools console)
-
-Run while signed in to the site, on a page of that site. Uses the browser's
-existing session, so it needs no app registration and no tenant-admin consent.
+Then, in DevTools on any BetterCare page:
 
 ```js
-const SITE = 'https://uthealthsa.sharepoint.com/sites/BetterCare';
-const H = { headers: { Accept: 'application/json;odata=nometadata' } };
-
-// Always verify the site before fetching. A leading-slash path like
-// `/_api/Web/Lists` resolves to the TENANT ROOT site, not this one.
-const web = await (await fetch(`${SITE}/_api/Web?$select=Title,Url`, H)).json();
-console.log('SITE:', web.Title, web.Url);
-
-const lists = (await (await fetch(
-  `${SITE}/_api/Web/Lists?$select=Title,Id&$filter=Hidden eq false`, H)).json()).value;
-
-const corpus = [];
-for (const l of lists) {
-  const items = [];
-  let url = `${SITE}/_api/Web/Lists(guid'${l.Id}')/Items?$top=500`;
-  while (url) {                                  // follow paging
-    const d = await (await fetch(url, H)).json();
-    items.push(...d.value);
-    url = d['odata.nextLink'] || null;
-  }
-  corpus.push({ list: l.Title, id: l.Id, items });
-}
-
-const a = document.createElement('a');
-a.href = URL.createObjectURL(new Blob([JSON.stringify(corpus, null, 2)], { type: 'application/json' }));
-a.download = 'bettercare-corpus.json';
-document.body.appendChild(a); a.click(); a.remove();
+eval(await (await fetch('http://127.0.0.1:8799/exporter.js')).text());
+await bcExport.run();          // site, lists, pages, files, snapshots
+bcExport.state                 // progress
 ```
 
-> Do **not** include the `User Information List` — it holds directory PII for
-> ~13,757 people and is not site content.
+Chrome asks once to allow the site to reach local-network devices — allow it.
+Keep the tab **active** while snapshots run (Chrome throttles rendering in
+background tabs, and SharePoint renders sections lazily). The export resumes:
+re-running skips files already received intact.
 
-### 2. Extract
+| Output (`data/site/`) | Contents |
+|---|---|
+| `site.json` | web info + the full navigation tree |
+| `lists/*.json` | every visible list: schema + all rows |
+| `pages/*.json` | every Site Page incl. `CanvasContent1` (authored web-part layout) |
+| `files.json`, `files/` | every file in every library (~3,600 files, 5.6 GB) |
+| `snapshots/*.html` | each page as rendered, CSS inlined, collapsible sections expanded, images saved to `snapshots/assets/` |
+
+SharePoint throttles bulk reads with a **200 OK HTML error page**, not a 429;
+the exporter checks every file against the manifest size and backs off.
+
+## 2. Ingest
 
 ```sh
-node src/extract.mjs data/bettercare-corpus.json --out data/chunks.json
+npm run ingest
 ```
 
-One list row becomes one chunk. Rows are short and self-contained, so nothing
-is split. The run prints a full audit: rows in, chunks out, which lists were
-skipped and why, and every individual row that was dropped.
+`src/ingest/index.mjs` turns the export into one corpus with a single chunk
+shape, whatever the source:
 
-### 3. Load the extension
+| Source | Module | Notes |
+|---|---|---|
+| List rows | `src/extract.mjs` + `src/lists.config.mjs` | per-list field mapping; placeholders, test lists, hidden rows dropped *and reported* |
+| Site Pages | `src/ingest/pages.mjs` | authored canvas text + text only visible when rendered (FAQ accordions, news/event rollups); split by heading |
+| Documents | `src/ingest/documents.mjs` | PDF (per page), Word (by heading), PowerPoint (per slide + notes), Excel (per sheet), text/HTML/ICS; identical copies indexed once |
+| Images, scanned PDFs | `tools/ocr-with-claude.mjs` | Claude transcribes flyers/screenshots so their printed words are searchable |
+| Video/audio | name + folder only | findable, not transcribed |
+
+List rows are linked to the page that displays them, so a citation opens where
+a user would actually see the item. `data/index/report.json` records every
+exclusion and why.
+
+Excluded by rule (see `PAGE_EXCLUDE` and `lists.config.mjs`): test/demo/OLD
+pages, untitled drafts, lorem-ipsum lists, template rows, and list rows hidden
+on the live site.
+
+## 3. Retrieval and answers (`server/`)
+
+- **Hybrid retrieval** (`retriever.mjs`): BM25 over titles + text (with a small
+  Epic-vocabulary synonym map: phone → Haiku, lab → Beaker, …) and local
+  `bge-small-en-v1.5` embeddings (transformers.js, no API key), fused with
+  Reciprocal Rank Fusion; max 3 chunks per source so one long PDF can't crowd
+  out everything else.
+- **Query rewrite** (`llm.mjs`, `prompt.mjs`): Claude turns follow-ups into
+  standalone questions and adds the site's vocabulary; the user's words and the
+  rewrite are both searched and fused.
+- **Answer** (`chat.mjs`): `claude-opus-5`, adaptive thinking, effort `low`,
+  streamed. Every claim cited `[n]`; says so plainly when the site doesn't
+  cover something. Server-side refusal fallback is on (`fallbacks: "default"`).
+- **SSE protocol** documented in `extension/lib/chat-api.js` — every stream
+  ends in exactly one `done` or `error`.
+- **Chat log** per turn in `data/logs/chat.jsonl` (question, rewrite,
+  retrieved ids + scores, prompt version, model, usage, latency).
+
+Config lives in `server/config.mjs` (env overrides): model, effort, top-k,
+candidates, confidence threshold, rate limit.
+
+### Eval
 
 ```sh
-npm run build
+npm run eval           # recall@8 + MRR over 25 real questions, and 5 off-topic ones
 ```
 
-Then `chrome://extensions` -> Developer mode -> Load unpacked -> select `extension/`.
-Full instructions in [extension/README.md](extension/README.md).
+Current: **recall@8 = 1.00, MRR ≈ 0.84, off-topic flagged 5/5**. Run it after
+any change to ingestion, chunking, embeddings or ranking; add questions from
+`data/logs/chat.jsonl` that retrieved badly.
 
-The extension makes **no network requests at all** — it searches the bundled
-corpus locally. It never reads from or writes to SharePoint.
+## 4. The replica (`site/`)
 
-There is also a static visual mockup at
-[design/extension-mockup.html](design/extension-mockup.html) for design review.
+`site/server.mjs` serves the export at the same paths SharePoint uses
+(`/sites/BetterCare/SitePages/Haiku.aspx`, `/sites/BetterCare/Shared Documents/…`),
+so internal links work unchanged. Each page is its rendered snapshot with the
+suite bar and site header grafted in, links kept local (anything not exported
+opens on the real site), and `site/assistant.js` injected:
+
+- **Search or ask BetterCare** in the suite bar: live semantic results as you
+  type, Enter asks the assistant, and **Compare with classic search** shows
+  what an exact-keyword search returns for the same words.
+- **Assistant pane** (suite-bar button or floating launcher), Copilot-style.
+  The conversation survives navigation.
+- **Citations** open the cited page, expand its collapsible section, scroll
+  to and highlight the passage. Documents open in a new tab (PDFs at the page).
+- Working navigation dropdowns from the real nav tree.
+
+It's a static capture: SharePoint's own scripts don't run, so live web parts
+show their state at export time and editing controls are removed. Specifics:
+
+- Collapsible sections were captured expanded (their web parts don't render
+  otherwise); the replica re-collapses them and makes the headers work.
+- The third-party **Modern FAQ** web part fails inside a frame, so the replica
+  re-renders it from the list it's bound to. Other failed custom web parts
+  (a news scroller) are hidden.
+- Images on sign-in-only hosts are captured with `bcExport.remoteAssets()`
+  (run with `npm start` up). Thumbnails served from Microsoft's CDNs can't be
+  captured cross-origin; they show only in a browser signed in to SharePoint,
+  and as a neutral placeholder otherwise.
+- ~40 "news link" pages just redirect to outside articles; they have no local
+  copy and open a "not in the replica" page with a link to SharePoint.
+
+## Moving to the real site
+
+The replica is the target experience. To ship it:
+
+1. **Backend hosting** — run `server/` somewhere reachable (Azure App Service /
+   container). Swap the local export for Graph delta sync (`site-chatbot-spec.md`
+   §6–7, D1b) once an admin grants `Sites.Selected` (§13 has the request).
+2. **Front end** — package `site/assistant.js` as an SPFx application
+   customizer (it already targets SharePoint's DOM: suite bar search, site
+   header, canvas zones). Needs a site-collection app catalog (§13).
+3. **Auth** — MSAL in the SPFx package, bearer-token validation on the server
+   (spec §7.7).
+4. **Permissions** — the corpus currently ignores item-level permissions.
+   Several libraries and pages have unique permissions; resolve that (spec
+   §4 P1, D2) before exposing the assistant beyond the site's owners.
 
 ## Layout
 
-| File | Purpose |
+| Path | Purpose |
 |---|---|
-| `src/lists.config.mjs` | Per-list rules. **All site-specific knowledge lives here.** |
-| `src/extract.mjs` | Generic row → chunk pipeline. No site knowledge. |
-| `src/html.mjs` | SharePoint rich-text → plain text, preserving links. |
-| `extension/` | Loadable Chrome MV3 extension. See its own README. |
-| `tools/build-extension.mjs` | Generates `extension/data/corpus.json` and the icons. |
-| `tools/test-search.mjs` | Ranking tests — runs `extension/search.js` under node. |
-| `design/extension-mockup.html` | Static visual mockup for design review. |
+| `server/` | API + retrieval + Claude + replica host. `config.mjs` holds every tunable. |
+| `site/` | Replica renderer (`server.mjs`) and the integrated assistant UI. |
+| `extension/` | Chrome MV3 side panel. `lib/` is shared with the replica. |
+| `src/extract.mjs`, `src/lists.config.mjs` | List rows → chunks. All list-specific knowledge lives in the config. |
+| `src/ingest/` | Pages + documents → chunks; `index.mjs` builds the corpus. |
+| `tools/export-*.{js,mjs}` | Read-only site exporter + local receiver. |
+| `tools/ocr-with-claude.mjs` | Transcribe images and scanned PDFs. |
+| `tools/eval-retrieval.mjs` | Retrieval eval. |
+| `site-chatbot-spec.md` | The production architecture spec this follows. |
+| `data/site/`, `data/index/` | Export and corpus — generated, git-ignored. |
 
-Pointing this at another SharePoint site means writing a new `lists.config.mjs`;
-nothing else changes.
-
-## What the extractor handles
-
-SharePoint list columns are named by whoever created them, so the config maps
-generic names (`field_2`, `field_4`) to meaning. Every mapping was derived by
-reading actual row values, not column names.
-
-- **Rich text** — strips tags, decodes SharePoint's double-encoded entities
-  (`&#58;`), removes zero-width characters, and lifts `<a href>` into a `links`
-  array while keeping the anchor text inline.
-- **Shape variance** — the same logical value arrives as `1` or `[1]`, as
-  `"yes"` or `["yes"]`, as `true` or `"True"`. Every accessor tolerates all forms.
-- **Hyperlink columns** — `{ Description, Url }` objects are unwrapped.
-- **Lookup joins** — `CategoryId` / `CatgId` resolve against the category lists
-  (52 of 52 FAQ chunks resolve).
-- **Empty titles** — `Terminology.Title` is blank on every row; the term is
-  composed from `EpicTerm` + `AxiumTerm`.
-- **Cross-list duplicates** — the same Q&A is copied into several lists. One
-  chunk survives and records the others in `alsoIn`, so a citation can name
-  every location.
-- **Unpublished rows** — `Display: ["no"]` rows are kept but tagged
-  `meta.published: false`, and filtered at retrieval time. The decision stays
-  reversible rather than being baked into extraction.
-- **Placeholder text** — lorem ipsum and `"N/A"` bodies are dropped *and named
-  in the report*, never silently.
-
-## Current corpus
-
-432 chunks / ~21,000 tokens from 21 lists.
-
-| kind | chunks | what it is |
-|---|---|---|
-| `feature` | 189 | Epic upgrade + Gen-AI feature descriptions |
-| `catalog` | 142 | tip-sheet metadata (title/link only — not the file text) |
-| `faq` | 52 | question/answer pairs |
-| `event` | 22 | dated implementation and upgrade milestones |
-| `resource` | 15 | how-to resource pages |
-| `glossary` | 12 | axiUm → Epic terminology |
-
-**Excluded lists**
-
-| list | rows | why |
-|---|---|---|
-| `HOPD` | 14 | lorem ipsum bodies; every link points to `google.com` |
-| `Breaking News` | 33 | every row is only a title: `"Breaking New 1".."33"` |
-| `Abridge` | 7 | navigation menu, not content (reusable later as a sitemap) |
-
-## Known limits
-
-- **`catalog` chunks are metadata, not content.** They name a tip sheet and
-  link to it; they cannot answer questions about what is *inside* it.
-- **`Beaker-TipSheets` (38) is entirely external.** Every link goes to the
-  Ancile uPerform LMS (`uthscsa.ancileuperform.com`), not SharePoint.
-  `WisdomTipSheets` has a link on only 17 of 56 rows.
-- **`Wisdom Document links` (53/53) points at SharePoint PDFs.** That column is
-  the join key for indexing the actual documents in a later phase.
-- **Site Pages (253) and Shared Documents (518) are not indexed yet.** Both
-  have `HasUniqueRoleAssignments: true`, so permissions must be resolved before
-  their content is exposed through a chatbot. Shared Documents also contains
-  PII (evaluations, enrollment and survey files) and heavy duplication
-  (28 identical copies of one 15 MB PDF), so it needs content-hash dedupe and a
-  PII exclusion pass.
+The original list-only pipeline (`npm run build`: `data/bettercare-corpus.json`
+→ `data/chunks.json` → the extension's bundled offline corpus) still works and
+is what the extension falls back to when the server is unreachable.

@@ -24,6 +24,30 @@ const faq = (categoryList) => ({
   },
 });
 
+/** "Wed, Oct 14, 2026, 7:00 AM – 3:00 PM" style text for calendar rows. */
+function eventWhen(it) {
+  if (!it.EventDate) return '';
+  const tz = { timeZone: 'America/Chicago' };
+  const start = new Date(it.EventDate);
+  const end = it.EndDate ? new Date(it.EndDate) : null;
+  const allDay = String(it.fAllDayEvent) === 'true';
+  const day = (d) => d.toLocaleDateString('en-US', { ...tz, weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', ...(allDay ? { timeZone: 'UTC' } : {}) });
+  const time = (d) => d.toLocaleTimeString('en-US', { ...tz, hour: 'numeric', minute: '2-digit' });
+  if (allDay) return `When: ${day(start)}${end && day(end) !== day(start) ? ` – ${day(end)}` : ''} (all day)`;
+  return `When: ${day(start)}, ${time(start)}${end ? ` – ${time(end)}` : ''} (Central)`;
+}
+
+/** Scrolling banner lists: a headline plus an optional link. */
+const banner = (label) => ({
+  kind: 'announcement',
+  build: (it, ctx) => ({
+    title: ctx.text(it.Title),
+    body: `${label}: ${ctx.text(it.Title)}`,
+    links: ctx.links(it, ['URL']),
+    meta: { category: label, expires: (it.ExDate || it.ExDt || it.ExpirationDT || '').slice(0, 10) || undefined },
+  }),
+});
+
 /** Shared builder for dated milestone lists. */
 const timeline = (label) => ({
   kind: 'event',
@@ -105,8 +129,6 @@ export const LISTS = {
       meta: { tags: ctx.arr(it.field_3), audience: ctx.arr(it.field_4), state: it.State },
     }),
   },
-  // Same schema as GenAI and largely the same rows; deduped downstream by content hash.
-  'GenAI-2': { kind: 'feature', sameAs: 'GenAI' },
 
   // DECODED: field_4 = one-line description ("Lab System"), Title = module name.
   EpicUpgrades: {
@@ -218,6 +240,54 @@ export const LISTS = {
     }),
   },
 
+  // ---- Calendar ---------------------------------------------------------
+  // Events is the site calendar behind the home page "Upcoming Events" web
+  // part. `test` is misnamed but holds real Abridge on-site sessions.
+  Events: {
+    kind: 'event',
+    build: (it, ctx) => ({
+      title: it.Title,
+      body: [
+        eventWhen(it),
+        it.Location ? `Location: ${ctx.text(it.Location)}` : '',
+        ctx.html(it.Description).text,
+      ].filter(Boolean).join('\n'),
+      meta: { date: it.EventDate?.slice(0, 10), endDate: it.EndDate?.slice(0, 10), category: it.Category || undefined, location: it.Location || undefined, series: 'Site calendar' },
+    }),
+  },
+  test: { kind: 'event', sameAs: 'Events' },
+
+  // ---- Banners / tickers -------------------------------------------------
+  Scroll_Announcements:        banner('Announcement'),
+  Scroll_Informational:        banner('Informational notice'),
+  Scroll_IssueAlerts:          banner('Issue alert'),
+  Scroll_Wisdom_Informational: banner('Wisdom notice'),
+
+  // DECODED: field_0 = building, field_2 = floor, field_3 = address,
+  // field_4 = phone, field_5 = location group. field_6..10 are all "0".
+  'Epic Beaker Lab Directory': {
+    kind: 'directory',
+    build: (it, ctx) => ({
+      title: ctx.text(it.Title),
+      body: [
+        it.field_0 && `Building: ${ctx.text(it.field_0)}`,
+        it.field_2 && `Floor: ${ctx.text(it.field_2)}`,
+        it.field_3 && `Address: ${ctx.text(it.field_3)}`,
+        it.field_4 && `Phone: ${ctx.text(it.field_4)}`,
+      ].filter(Boolean).join('\n'),
+      meta: { category: 'Lab draw stations' },
+    }),
+  },
+
+  PlaylistBC: {
+    kind: 'resource',
+    build: (it, ctx) => ({
+      title: ctx.text(it.Title),
+      body: `Video in the BetterCare media playlist${it.Duration ? ` (${it.Duration})` : ''}.`,
+      meta: { category: 'Video' },
+    }),
+  },
+
   // ---- Lookup tables (resolve CategoryId / CatgId; never indexed) -------
   FAQCategories:            { lookup: true },
   FAQWisdomCategory:        { lookup: true },
@@ -229,5 +299,25 @@ export const LISTS = {
   // ---- Excluded --------------------------------------------------------
   HOPD:            { skip: 'Placeholder data - lorem ipsum descriptions, all links point to google.com.' },
   'Breaking News': { skip: 'Placeholder data - every row is only a title, "Breaking New 1".."Breaking New 33".' },
+  'GenAI-2':       { skip: 'Draft copy of GenAI - the same rows lightly reworded, plus placeholder rows ("XYZ AI tool", "ABC AI tool", "LNM AI tool"). Indexing it only duplicates GenAI in results.' },
+  maryTest:        { skip: 'Template/test list - rows are "Title 1".."Title 5" with help text as content.' },
+  TetEnroll:       { skip: 'Single test row ("Sessions").' },
+  test234:         { skip: 'Empty test list.' },
+  BCATESTLOOKUP:   { skip: 'Test lookup list.' },
+  TESTBCA:         { skip: 'Test list; the REST API returns 500 for its items.' },
+  TimelineDemo:    { skip: 'Demo copy of Timeline.' },
+  EpicUpgrades123: { skip: 'Test copy of EpicUpgrades.' },
+  'BC-Analytics':  { skip: 'Numeric chart data (monthly percentages) with no labels to answer from.' },
+  BCPlaylistShortVideos: { skip: 'Hidden (Display: no) clips titled "1".."3".' },
+  // Document libraries are indexed by file content (src/ingest/documents.mjs),
+  // and Site Pages by page content (src/ingest/pages.mjs), not as list rows.
+  Documents: { skip: 'Document library - indexed by file content.' },
+  'Site Pages': { skip: 'Page library - indexed by page content.' },
+  Images: { skip: 'Image library.' },
+  'Site Assets': { skip: 'Asset library - PDFs inside are indexed by file content.' },
+  'Refuel_Upgrade': { skip: 'Document library - indexed by file content.' },
+  'Refuel/Upgrade': { skip: 'Document library - indexed by file content.' },
+  'Style Library': { skip: 'Empty library.' },
+  'Form Templates': { skip: 'Empty library.' },
   Abridge:         { skip: 'Navigation menu (Title/PageLink/Icon), not content. Usable later as a sitemap into Site Pages.' },
 };

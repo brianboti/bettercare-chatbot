@@ -1,20 +1,43 @@
 // BetterCare Assistant — side panel.
 //
-// No model and no network. This searches the corpus bundled at build time
-// (data/corpus.json, generated from the extracted SharePoint lists) and shows
-// the matching content verbatim with a link to the list item it came from.
-// Swapping `answer()` for a call to the Claude API is the only change needed
-// to make this a real assistant.
+// Online: a chat client of the BetterCare RAG server (server/, `npm start`).
+// Each question streams back a Claude answer grounded in the whole site —
+// pages, documents and lists — with [n] citations to the SharePoint source.
+//
+// Offline (server unreachable): falls back to keyword search over the corpus
+// bundled at build time (data/corpus.json) and shows matches verbatim.
 
+import { DEFAULT_API, health, streamChat } from './lib/chat-api.js';
+import { renderAnswer } from './lib/render.js';
 import { buildIndex, search } from './search.js';
 
 const SUGGESTIONS = [
-  { kind: 'faq',      q: 'What is Epic Haiku?' },
-  { kind: 'glossary', q: 'What is SlicerDicer called in axiUm?' },
-  { kind: 'catalog',  q: 'Find the cash drawer tip sheet' },
-  { kind: 'feature',  q: 'What is Abridge Dictation?' },
-  { kind: 'event',    q: 'When did the vAugust2024 upgrade go live?' },
+  { kind: 'page',     q: 'How do I set up Haiku on my phone?' },
+  { kind: 'event',    q: 'When is the next Epic upgrade?' },
+  { kind: 'faq',      q: 'How do I get Abridge access?' },
+  { kind: 'catalog',  q: "Where's the cash drawer tip sheet?" },
+  { kind: 'resource', q: 'Who do I contact for Epic help?' },
 ];
+
+const STATUS_TEXT = {
+  rewriting: 'Understanding your question…',
+  retrieving: 'Searching the site…',
+  generating: 'Writing answer…',
+};
+
+const ERROR_TEXT = {
+  UNREACHABLE: "Can't reach the assistant server.",
+  RATE_LIMITED: 'Too many questions in a short time.',
+  UPSTREAM_LLM: 'The AI service had a problem.',
+  REFUSED: "I can't help with that one.",
+  INTERNAL: 'Something went wrong on the server.',
+};
+
+const KIND_LABEL = {
+  page: 'Page', news: 'News', faq: 'FAQ', glossary: 'Glossary', catalog: 'Tip sheet',
+  feature: 'Epic feature', event: 'Event', resource: 'Resource', announcement: 'Announcement',
+  directory: 'Directory', document: 'Document', slides: 'Slides', spreadsheet: 'Spreadsheet', file: 'File',
+};
 
 // ---------------------------------------------------------------- utilities
 
@@ -27,7 +50,6 @@ function el(tag, attrs = {}, children = []) {
     if (v == null || v === false) continue;
     if (k === 'class') node.className = v;
     else if (k === 'text') node.textContent = v;
-    else if (k === 'html') node.innerHTML = v;
     else node.setAttribute(k, v);
   }
   for (const c of [].concat(children)) {
@@ -37,75 +59,74 @@ function el(tag, attrs = {}, children = []) {
   return node;
 }
 
-// ---------------------------------------------------------------- corpus
+const thread = () => $('#thread');
+const scrollDown = () => { thread().scrollTop = thread().scrollHeight; };
 
-let INDEX = null;
+// ---------------------------------------------------------------- connection
 
-async function loadCorpus() {
-  const res = await fetch(chrome.runtime.getURL('data/corpus.json'));
-  const corpus = await res.json();
-  INDEX = buildIndex(corpus);
-  $('#count').textContent = `${corpus.length} items indexed`;
+let API = DEFAULT_API;
+let mode = 'checking';       // 'claude' | 'retrieval-only' | 'offline' | 'checking'
+let OFFLINE_INDEX = null;
+
+async function loadSettings() {
+  try {
+    const { apiUrl } = await chrome.storage.local.get('apiUrl');
+    if (apiUrl) API = apiUrl.replace(/\/+$/, '');
+  } catch { /* storage unavailable: keep the default */ }
 }
 
-// ---------------------------------------------------------------- rendering
+function setScope(state, label, count = '') {
+  const scope = $('#scope');
+  scope.dataset.state = state;
+  $('#scope-label').replaceChildren(el('b', { text: label }));
+  $('#count').textContent = count;
+  const tag = $('#mode-tag');
+  tag.textContent = { claude: 'AI', 'retrieval-only': 'Search only', offline: 'Offline', checking: '' }[state] ?? '';
+  tag.title = {
+    claude: 'Answers written by Claude from site content',
+    'retrieval-only': 'Server has no API key: shows matching site content',
+    offline: 'Server unreachable: keyword search over bundled content',
+  }[state] ?? '';
+  tag.hidden = !tag.textContent;
+}
 
-/** Turn a chunk's plain text into paragraphs and bullet lists. */
-function renderBody(text, title) {
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
-  if (lines[0] && lines[0] === title) lines.shift();
-
-  const out = [];
-  let bullets = null;
-
-  const flush = () => {
-    if (bullets) { out.push(el('ul', {}, bullets)); bullets = null; }
-  };
-
-  for (const line of lines) {
-    if (line.startsWith('- ')) {
-      (bullets ||= []).push(el('li', { text: line.slice(2) }));
-    } else {
-      flush();
-      out.push(el('p', { text: line }));
-    }
+async function connect() {
+  setScope('checking', 'Connecting…');
+  const h = await health(API);
+  if (h?.ok) {
+    mode = h.mode === 'claude' ? 'claude' : 'retrieval-only';
+    setScope(mode, mode === 'claude' ? 'Connected' : 'Retrieval-only mode',
+      `${Number(h.chunks).toLocaleString()} items`);
+    return true;
   }
-  flush();
-  return out;
+  mode = 'offline';
+  setScope('offline', 'Offline — using bundled search', '');
+  await loadOfflineCorpus();
+  return false;
 }
 
-function citation(chunk, n) {
-  const meta = [chunk.l, chunk.c, chunk.d].filter(Boolean).join(' · ');
-  return el('a', {
-    class: 'cite',
-    'data-kind': chunk.k,
-    href: chunk.doc || chunk.u,
-    target: '_blank',
-    rel: 'noopener',
-  }, [
-    el('span', { class: 'cite__spine', 'aria-hidden': 'true' }),
-    el('span', { class: 'cite__body' }, [
-      el('span', { class: 'cite__n', text: String(n) }),
-      el('span', { class: 'cite__title', text: chunk.t, title: chunk.t }),
-      el('span', { class: 'cite__meta', text: meta }),
-    ]),
-  ]);
+async function loadOfflineCorpus() {
+  if (OFFLINE_INDEX) return;
+  try {
+    const res = await fetch(chrome.runtime.getURL('data/corpus.json'));
+    const corpus = await res.json();
+    OFFLINE_INDEX = buildIndex(corpus);
+    $('#count').textContent = `${corpus.length} items`;
+  } catch (err) {
+    console.error('[BetterCare] offline corpus', err);
+  }
 }
 
-function thread() { return $('#thread'); }
-
-function scrollDown() {
-  const t = thread();
-  t.scrollTop = t.scrollHeight;
-}
+// ---------------------------------------------------------------- welcome
 
 function showWelcome() {
+  history.length = 0;
   thread().replaceChildren(
     el('div', { class: 'welcome' }, [
       el('h1', { text: 'Ask anything on the BetterCare site.' }),
       el('p', {
-        text: 'Upgrades, tip sheets, training, and the axiUm → Epic glossary. '
-            + 'Every answer links back to the item it came from.',
+        text: 'Pages, tip sheets, upgrade guides, FAQs, events and training. '
+            + 'Every answer links back to where it came from.',
       }),
       el('div', { class: 'suggests' }, SUGGESTIONS.map((s) => {
         const b = el('button', { class: 'suggest', type: 'button', 'data-kind': s.kind }, [
@@ -119,114 +140,250 @@ function showWelcome() {
   );
 }
 
+// ---------------------------------------------------------------- rendering
+
 function addUserTurn(text) {
-  thread().append(
-    el('div', { class: 'turn turn--user' }, [el('div', { class: 'bubble', text })]),
-  );
+  thread().append(el('div', { class: 'turn turn--user' }, [el('div', { class: 'bubble', text })]));
   scrollDown();
 }
 
-function addThinking() {
-  const node = el('div', { class: 'turn' }, [
-    el('div', { class: 'who', text: 'Assistant' }),
-    el('div', { class: 'thinking' }, [
-      el('span', { class: 'thinking__dots', 'aria-hidden': 'true' }, [
-        el('i'), el('i'), el('i'),
-      ]),
-      el('span', { text: 'Reading the site…' }),
+function thinking(text) {
+  return el('div', { class: 'thinking' }, [
+    el('span', { class: 'thinking__dots', 'aria-hidden': 'true' }, [el('i'), el('i'), el('i')]),
+    el('span', { class: 'thinking__text', text }),
+  ]);
+}
+
+/** Inline [n] chip linking to source n. */
+function citeChip(sources, n) {
+  const s = sources.find((x) => x.n === n);
+  if (!s) return null;
+  return el('a', {
+    class: 'cite-chip', href: s.url, target: '_blank', rel: 'noopener',
+    title: s.title, 'data-kind': s.kind,
+  }, String(n));
+}
+
+function sourceCard(s) {
+  const where = s.headingPath?.length ? s.headingPath.join(' › ') : s.list;
+  const meta = [KIND_LABEL[s.kind] || s.kind, where, s.date].filter(Boolean).join(' · ');
+  const card = el('div', { class: 'cite', 'data-kind': s.kind }, [
+    el('span', { class: 'cite__spine', 'aria-hidden': 'true' }),
+    el('a', { class: 'cite__body', href: s.url, target: '_blank', rel: 'noopener' }, [
+      el('span', { class: 'cite__n', text: String(s.n) }),
+      el('span', { class: 'cite__title', text: s.title, title: s.title }),
+      el('span', { class: 'cite__meta', text: meta, title: meta }),
     ]),
   ]);
-  thread().append(node);
-  scrollDown();
-  return node;
+  if (s.docUrl && s.docUrl !== s.url) {
+    card.append(el('a', {
+      class: 'cite__doc', href: s.docUrl, target: '_blank', rel: 'noopener', title: 'Open the linked document',
+    }, 'Open doc'));
+  }
+  return card;
 }
 
-/**
- * Compose the reply. With no model in the loop this presents the matched site
- * content directly rather than paraphrasing it — which also means it can never
- * state something the site does not.
- */
-function answer(hits, query) {
-  const turn = el('div', { class: 'turn' }, [el('div', { class: 'who', text: 'Assistant' })]);
+/** Sources shown under an answer: cited ones first, then (collapsed) the rest. */
+function sourcesBlock(sources, answerText) {
+  const cited = new Set([...answerText.matchAll(/\[(\d+(?:\s*,\s*\d+)*)\]/g)]
+    .flatMap((m) => m[1].split(',').map((n) => Number(n.trim()))));
+  const used = sources.filter((s) => cited.has(s.n));
+  const rest = sources.filter((s) => !cited.has(s.n));
+  const primary = used.length ? used : sources.slice(0, 3);
+  const extra = used.length ? rest : sources.slice(3);
 
-  if (!hits.length) {
-    turn.append(
-      el('div', { class: 'notice notice--empty' }, [
-        el('b', { text: 'Nothing on this site covers that.' }),
-        ' Try naming an Epic application (Haiku, Wisdom, Beaker, Cogito), '
-        + 'an upgrade wave, or a tip sheet.',
-      ]),
-    );
-    return turn;
+  const block = el('div', { class: 'sources' }, [
+    el('div', { class: 'sources__label', text: primary.length > 1 ? 'Sources' : 'Source' }),
+    ...primary.map(sourceCard),
+  ]);
+  if (extra.length) {
+    const more = el('details', { class: 'sources__more' }, [
+      el('summary', { text: `${extra.length} more related` }),
+      ...extra.map(sourceCard),
+    ]);
+    block.append(more);
   }
-
-  const top = hits[0].chunk;
-
-  if (top.k === 'catalog') {
-    // Catalog rows are metadata about a file. Say so instead of guessing.
-    turn.append(el('div', { class: 'answer' }, [
-      el('p', { text: "There's a tip sheet for this, but its contents aren't indexed yet — "
-                    + 'so here is the document rather than a guess at what it says.' }),
-    ]));
-    if (top.r?.length || top.c) {
-      turn.append(el('div', { class: 'chips' },
-        [...(top.r || []), top.c].filter(Boolean).map((r) => el('span', { class: 'chip', text: r }))));
-    }
-  } else {
-    turn.append(el('div', { class: 'answer' }, renderBody(top.x, top.t)));
-  }
-
-  turn.append(
-    el('div', { class: 'sources' }, [
-      el('div', { class: 'sources__label', text: hits.length > 1 ? 'Sources' : 'Source' }),
-      ...hits.map((h, i) => citation(h.chunk, i + 1)),
-    ]),
-  );
-
-  if (top.k === 'catalog') {
-    turn.append(
-      el('div', { class: 'notice' }, [
-        el('b', { text: 'Not yet readable.' }),
-        ' Tip-sheet files are indexed by title and role only. '
-        + 'Enable document indexing to get answers from inside PDFs.',
-      ]),
-    );
-  }
-
-  return turn;
+  return block;
 }
 
-// ---------------------------------------------------------------- interaction
+// ---------------------------------------------------------------- asking
 
+const history = [];      // [{ role, content }] — what we send to the server
 let busy = false;
+let controller = null;
+
+function setBusy(on) {
+  busy = on;
+  $('#send').hidden = on;
+  $('#stop').hidden = !on;
+  if (!on) $('#send').disabled = !$('#q').value.trim();
+}
 
 async function ask(query) {
   const q = query.trim();
   if (!q || busy) return;
-  busy = true;
-
-  // Clear the welcome panel on the first question.
   if (thread().querySelector('.welcome')) thread().replaceChildren();
-
   addUserTurn(q);
-  const pending = addThinking();
 
-  const hits = INDEX ? search(INDEX, q) : [];
-
-  // A short beat so the working state is visible; the search itself is instant.
-  await new Promise((r) => setTimeout(r, 260));
-
-  pending.replaceWith(answer(hits, q));
-  scrollDown();
-  busy = false;
+  if (mode === 'checking') await connect();
+  if (mode === 'offline') {
+    // The server may have come up since the panel opened.
+    const back = await connect();
+    if (!back) { offlineAnswer(q); return; }
+  }
+  history.push({ role: 'user', content: q });
+  await onlineAnswer();
 }
+
+/** Stream one answer for the last user message in `history`. */
+async function onlineAnswer() {
+  const turn = el('div', { class: 'turn' }, [el('div', { class: 'who', text: 'Assistant' })]);
+  const status = thinking(STATUS_TEXT.retrieving);
+  const answer = el('div', { class: 'answer', hidden: true });
+  turn.append(status, answer);
+  thread().append(turn);
+  scrollDown();
+
+  let text = '';
+  let sources = [];
+  let failed = null;
+  controller = new AbortController();
+  setBusy(true);
+
+  const paint = () => {
+    answer.hidden = !text;
+    answer.replaceChildren(renderAnswer(text, (n) => citeChip(sources, n)));
+    const nearBottom = thread().scrollHeight - thread().scrollTop - thread().clientHeight < 120;
+    if (nearBottom) scrollDown();
+  };
+
+  await streamChat(API, history, {
+    status: (d) => { status.querySelector('.thinking__text').textContent = STATUS_TEXT[d.stage] || 'Working…'; },
+    sources: (d) => { sources = d; },
+    token: (d) => { status.remove(); text += d.text; paint(); },
+    reset: () => { text = ''; paint(); },
+    error: (d) => { failed = d; },
+    done: () => {},
+  }, controller.signal);
+
+  const aborted = controller.signal.aborted;
+  controller = null;
+  setBusy(false);
+  status.remove();
+
+  if (failed) {
+    history.pop();                                   // let Retry resend the question
+    if (failed.code === 'UNREACHABLE') { mode = 'offline'; connect(); }
+    turn.append(errorNotice(failed, () => {
+      const q = [...thread().querySelectorAll('.turn--user .bubble')].pop()?.textContent;
+      turn.remove();
+      if (q) { history.push({ role: 'user', content: q }); onlineAnswer(); }
+    }));
+    return;
+  }
+
+  if (aborted && !text) {
+    history.pop();
+    turn.append(el('div', { class: 'notice notice--empty' }, [el('b', { text: 'Stopped.' })]));
+    return;
+  }
+
+  if (aborted) text += ' …';
+  paint();
+  history.push({ role: 'assistant', content: text });
+  if (sources.length) turn.append(sourcesBlock(sources, text));
+  scrollDown();
+}
+
+function errorNotice(err, retry) {
+  const btn = el('button', { class: 'btn btn--small', type: 'button', text: 'Retry' });
+  btn.addEventListener('click', retry);
+  const hint = err.code === 'UNREACHABLE' ? ` Start it with npm start, or check the address in settings (${API}).` : '';
+  return el('div', { class: 'notice notice--error' }, [
+    el('b', { text: ERROR_TEXT[err.code] || 'Something went wrong.' }),
+    ` ${err.message && err.code !== 'UNREACHABLE' ? err.message : ''}${hint}`,
+    el('div', { class: 'notice__actions' }, [btn]),
+  ]);
+}
+
+// ---------------------------------------------------------------- offline
+
+/** Verbatim best match from the bundled corpus, as the pre-server panel did. */
+function offlineAnswer(q) {
+  const hits = OFFLINE_INDEX ? search(OFFLINE_INDEX, q) : [];
+  const turn = el('div', { class: 'turn' }, [el('div', { class: 'who', text: 'Assistant · offline' })]);
+
+  if (!hits.length) {
+    turn.append(el('div', { class: 'notice notice--empty' }, [
+      el('b', { text: 'Nothing in the offline copy covers that.' }),
+      ' Offline search only covers list content and needs close wording. '
+      + 'Start the assistant server for full-site answers.',
+    ]));
+    thread().append(turn);
+    scrollDown();
+    return;
+  }
+
+  const top = hits[0].chunk;
+  const body = el('div', { class: 'answer' });
+  const lines = top.x.split('\n').map((l) => l.trim()).filter(Boolean);
+  if (lines[0] === top.t) lines.shift();
+  body.append(renderAnswer(lines.join('\n'), () => null));
+  turn.append(body);
+
+  turn.append(el('div', { class: 'sources' }, [
+    el('div', { class: 'sources__label', text: hits.length > 1 ? 'Sources' : 'Source' }),
+    ...hits.map((h, i) => sourceCard({
+      n: i + 1, title: h.chunk.t, kind: h.chunk.k, list: h.chunk.l,
+      headingPath: [h.chunk.c].filter(Boolean), date: h.chunk.d,
+      url: h.chunk.u, docUrl: h.chunk.doc,
+    })),
+  ]));
+  turn.append(el('div', { class: 'notice' }, [
+    el('b', { text: 'Offline mode.' }),
+    ' Showing site content verbatim from a bundled copy of the lists. '
+    + 'Pages and documents need the assistant server.',
+  ]));
+  thread().append(turn);
+  scrollDown();
+}
+
+// ---------------------------------------------------------------- settings
+
+function initSettings() {
+  const btn = $('#settings-btn');
+  const form = $('#settings');
+  const input = $('#api-url');
+
+  const toggle = (open) => {
+    form.hidden = !open;
+    btn.setAttribute('aria-expanded', String(open));
+    if (open) { input.value = API; $('#settings-status').textContent = ''; input.focus(); }
+  };
+  btn.addEventListener('click', () => toggle(form.hidden));
+  form.addEventListener('keydown', (e) => { if (e.key === 'Escape') toggle(false); });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const url = (input.value.trim() || DEFAULT_API).replace(/\/+$/, '');
+    try { new URL(url); } catch { $('#settings-status').textContent = 'Not a valid URL.'; return; }
+    API = url;
+    try { await chrome.storage.local.set({ apiUrl: url }); } catch { /* keep for this session */ }
+    $('#settings-status').textContent = 'Connecting…';
+    const ok = await connect();
+    $('#settings-status').textContent = ok ? 'Connected.' : 'Not reachable — using offline search.';
+    if (ok) setTimeout(() => toggle(false), 700);
+  });
+}
+
+// ---------------------------------------------------------------- init
 
 function autoGrow(ta) {
   ta.style.height = 'auto';
   ta.style.height = `${Math.min(ta.scrollHeight, 96)}px`;
 }
 
-function init() {
+async function init() {
   const form = $('#composer');
   const input = $('#q');
   const send = $('#send');
@@ -235,16 +392,15 @@ function init() {
     autoGrow(input);
     send.disabled = !input.value.trim();
   });
-
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       form.requestSubmit();
     }
   });
-
   form.addEventListener('submit', (e) => {
     e.preventDefault();
+    if (busy) return;
     const q = input.value;
     input.value = '';
     autoGrow(input);
@@ -252,7 +408,10 @@ function init() {
     ask(q);
   });
 
+  $('#stop').addEventListener('click', () => controller?.abort());
+
   $('#reset').addEventListener('click', () => {
+    controller?.abort();
     showWelcome();
     input.value = '';
     autoGrow(input);
@@ -260,11 +419,10 @@ function init() {
     input.focus();
   });
 
+  initSettings();
   showWelcome();
-  loadCorpus().catch((err) => {
-    $('#count').textContent = 'corpus failed to load';
-    console.error('[BetterCare]', err);
-  });
+  await loadSettings();
+  connect();
 }
 
 init();

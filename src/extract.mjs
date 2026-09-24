@@ -12,6 +12,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { LISTS } from './lists.config.mjs';
 import { htmlToText, normalize, decodeEntities } from './html.mjs';
 
@@ -22,6 +23,10 @@ const PLACEHOLDER = [
   /^desc goes here$/i,
   /^(test|tbd|todo|n\/?a|xxx+)\.?$/i,
   /lorem ipsum|reprehenderit|voluptas|pariatur/i,
+  /^answer here\.?$/i,                      // DtlFAQs: every answer is this stub
+  /^course\(s\)\??$/i,                       // DtlCrseJR stubs
+  /^placeholder\b.*\(test\)$/i,             // Resource Directory test rows
+  /^up to 255 characters/i,                 // list-template help text left in rows
 ];
 
 const isPlaceholder = (s) => !!s && PLACEHOLDER.some((re) => re.test(s.trim()));
@@ -73,7 +78,7 @@ function makeContext(lookups) {
 
 // ---- main -------------------------------------------------------------
 
-function extract(corpus) {
+export function extract(corpus) {
   const byName = new Map(corpus.map((e) => [e.list, e]));
   const stats = { lists: [], skipped: [], unmapped: [], dropped: {}, droppedRows: [], unpublished: 0 };
   const drop = (why, entry, item, title) => {
@@ -180,6 +185,9 @@ function prune(meta) {
 
 // ---- CLI --------------------------------------------------------------
 
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) cli();
+
+function cli() {
 const args = process.argv.slice(2);
 const input = args.find((a) => !a.startsWith('--')) ?? 'data/bettercare-corpus.json';
 const outIdx = args.indexOf('--out');
@@ -214,6 +222,8 @@ console.log(
 );
 console.log(`median ${median(chunks.map((c) => c.text.length))} chars, max ${Math.max(...chunks.map((c) => c.text.length))}`);
 console.log(`wrote ${output}`);
+
+}
 
 function median(a) {
   const s = [...a].sort((x, y) => x - y);

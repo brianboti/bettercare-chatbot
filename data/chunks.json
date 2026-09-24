@@ -942,126 +942,6 @@
     ]
   },
   {
-    "id": "DtlCrseJR:4",
-    "title": "Dental Hygiene Student",
-    "text": "Dental Hygiene Student\n\nCourse(s)?",
-    "list": "DtlCrseJR",
-    "kind": "faq",
-    "url": "https://uthealthsa.sharepoint.com/sites/BetterCare/_layouts/15/listform.aspx?PageType=4&ListId={119b9961-109f-469b-9bf6-660fae24c2ec}&ID=4",
-    "meta": {
-      "category": "Dental"
-    },
-    "hash": "00c1245107d6"
-  },
-  {
-    "id": "DtlCrseJR:5",
-    "title": "Dental Front Desk Staff",
-    "text": "Dental Front Desk Staff\n\nCourse(s)?",
-    "list": "DtlCrseJR",
-    "kind": "faq",
-    "url": "https://uthealthsa.sharepoint.com/sites/BetterCare/_layouts/15/listform.aspx?PageType=4&ListId={119b9961-109f-469b-9bf6-660fae24c2ec}&ID=5",
-    "meta": {
-      "category": "Dental"
-    },
-    "hash": "dae5bb494c7c"
-  },
-  {
-    "id": "DtlFAQs:1",
-    "title": "What is Epic?",
-    "text": "What is Epic?\n\nAnswer here.",
-    "list": "DtlFAQs",
-    "kind": "faq",
-    "url": "https://uthealthsa.sharepoint.com/sites/BetterCare/_layouts/15/listform.aspx?PageType=4&ListId={c36e8d8c-d2be-4e86-b571-0f74769a25ae}&ID=1",
-    "meta": {
-      "category": "Dental"
-    },
-    "hash": "f1cd161fdbb5"
-  },
-  {
-    "id": "DtlFAQs:2",
-    "title": "How do I access Epic?",
-    "text": "How do I access Epic?\n\nAnswer here.",
-    "list": "DtlFAQs",
-    "kind": "faq",
-    "url": "https://uthealthsa.sharepoint.com/sites/BetterCare/_layouts/15/listform.aspx?PageType=4&ListId={c36e8d8c-d2be-4e86-b571-0f74769a25ae}&ID=2",
-    "meta": {
-      "category": "Dental"
-    },
-    "hash": "52bd87ffc5fe"
-  },
-  {
-    "id": "DtlFAQs:3",
-    "title": "What is Epic Wisdom?",
-    "text": "What is Epic Wisdom?\n\nAnswer here.",
-    "list": "DtlFAQs",
-    "kind": "faq",
-    "url": "https://uthealthsa.sharepoint.com/sites/BetterCare/_layouts/15/listform.aspx?PageType=4&ListId={c36e8d8c-d2be-4e86-b571-0f74769a25ae}&ID=3",
-    "meta": {
-      "category": "Dental"
-    },
-    "hash": "08094a0b4e46"
-  },
-  {
-    "id": "DtlFAQs:4",
-    "title": "How do I use Epic for my role and do I get trained for this role?",
-    "text": "How do I use Epic for my role and do I get trained for this role?\n\nAnswer here.",
-    "list": "DtlFAQs",
-    "kind": "faq",
-    "url": "https://uthealthsa.sharepoint.com/sites/BetterCare/_layouts/15/listform.aspx?PageType=4&ListId={c36e8d8c-d2be-4e86-b571-0f74769a25ae}&ID=4",
-    "meta": {
-      "category": "Dental"
-    },
-    "hash": "7209c0de7033"
-  },
-  {
-    "id": "DtlFAQs:5",
-    "title": "How do I sign up for training?",
-    "text": "How do I sign up for training?\n\nAnswer here.",
-    "list": "DtlFAQs",
-    "kind": "faq",
-    "url": "https://uthealthsa.sharepoint.com/sites/BetterCare/_layouts/15/listform.aspx?PageType=4&ListId={c36e8d8c-d2be-4e86-b571-0f74769a25ae}&ID=5",
-    "meta": {
-      "category": "Dental"
-    },
-    "hash": "069786463370"
-  },
-  {
-    "id": "DtlFAQs:6",
-    "title": "What about existing patient information in axiUm?",
-    "text": "What about existing patient information in axiUm?\n\nAnswer here.",
-    "list": "DtlFAQs",
-    "kind": "faq",
-    "url": "https://uthealthsa.sharepoint.com/sites/BetterCare/_layouts/15/listform.aspx?PageType=4&ListId={c36e8d8c-d2be-4e86-b571-0f74769a25ae}&ID=6",
-    "meta": {
-      "category": "Dental"
-    },
-    "hash": "13f9c08c451f"
-  },
-  {
-    "id": "DtlFAQs:7",
-    "title": "Will patients have both chart numbers from axiUm and MRN (medical record number)?",
-    "text": "Will patients have both chart numbers from axiUm and MRN (medical record number)?\n\nAnswer here.",
-    "list": "DtlFAQs",
-    "kind": "faq",
-    "url": "https://uthealthsa.sharepoint.com/sites/BetterCare/_layouts/15/listform.aspx?PageType=4&ListId={c36e8d8c-d2be-4e86-b571-0f74769a25ae}&ID=7",
-    "meta": {
-      "category": "Dental"
-    },
-    "hash": "613128f92154"
-  },
-  {
-    "id": "DtlFAQs:8",
-    "title": "Will we still use MIPACs and be able to access it from Epic?",
-    "text": "Will we still use MIPACs and be able to access it from Epic?\n\nAnswer here.",
-    "list": "DtlFAQs",
-    "kind": "faq",
-    "url": "https://uthealthsa.sharepoint.com/sites/BetterCare/_layouts/15/listform.aspx?PageType=4&ListId={c36e8d8c-d2be-4e86-b571-0f74769a25ae}&ID=8",
-    "meta": {
-      "category": "Dental"
-    },
-    "hash": "d6288add46aa"
-  },
-  {
     "id": "EpicUpgrades:1",
     "title": "Beaker",
     "text": "Beaker\n\nLab System",
@@ -1823,10 +1703,7 @@
       ],
       "state": "Current"
     },
-    "hash": "7429da06c4bc",
-    "alsoIn": [
-      "GenAI-2:3"
-    ]
+    "hash": "7429da06c4bc"
   },
   {
     "id": "GenAI:4",
@@ -1844,10 +1721,7 @@
       ],
       "state": "Current"
     },
-    "hash": "877fd586c10b",
-    "alsoIn": [
-      "GenAI-2:4"
-    ]
+    "hash": "877fd586c10b"
   },
   {
     "id": "GenAI:6",
@@ -2006,98 +1880,6 @@
       "state": "Current"
     },
     "hash": "2076ae02220a"
-  },
-  {
-    "id": "GenAI-2:1",
-    "title": "AI Text Assistant",
-    "text": "AI Text Assistant\n\nCurrently piloted by specific departments (will be available to all in the next upgrade, August 2026).\nTo more quickly write notes, patient instructions, letters, and In Basket messages, clinicians can use AI-powered text action tools to:\n- Summarize a piece of text that the clinician wrote to make it shorter or update the formatting, such as turning a paragraph into a list.\n- Update the text to make sense to a specific audience, such as translating clinical jargon into wording that a patient can more easily understand.",
-    "list": "GenAI-2",
-    "kind": "feature",
-    "url": "https://uthealthsa.sharepoint.com/sites/BetterCare/_layouts/15/listform.aspx?PageType=4&ListId={0257b4b2-ec7a-450f-8020-aacdf0129d57}&ID=1",
-    "meta": {
-      "tags": [
-        "Gen AI - Clinicians",
-        "Epic"
-      ],
-      "audience": [
-        "Provider"
-      ],
-      "state": "Current"
-    },
-    "hash": "7213728ca483"
-  },
-  {
-    "id": "GenAI-2:2",
-    "title": "Abridge Dictation",
-    "text": "Abridge Dictation\n\nCurrently piloted by specific departments. Verbatim Mode allows clinicians to more easily create their ideal clinical note through any combination of summarized and verbatim, word-for-word content—captured before or after note generation.\n\nPROBLEM: Time-consuming note-taking causes inefficiencies and miscommunication in fast-paced environments.\n\nSOLUTION/BENEFIT: Abridge Dictation boosts productivity with quick, accurate voice-to-text documentation, saving time, reducing errors, and offering flexibility while integrating seamlessly with existing tools.",
-    "list": "GenAI-2",
-    "kind": "feature",
-    "url": "https://uthealthsa.sharepoint.com/sites/BetterCare/_layouts/15/listform.aspx?PageType=4&ListId={0257b4b2-ec7a-450f-8020-aacdf0129d57}&ID=2",
-    "meta": {
-      "tags": [
-        "Ambient",
-        "Abridge"
-      ],
-      "audience": [
-        "Provider"
-      ],
-      "state": "Current"
-    },
-    "hash": "81a80a4866c8"
-  },
-  {
-    "id": "GenAI-2:5",
-    "title": "XYZ AI tool",
-    "text": "XYZ AI tool\n\nRounding clinicians see a complex mix of patients, ranging from those they've been checking in with every day to those they've never met before. To help them quickly prepare for each of those patients, they can use generative AI to create three types of insights to fit the type of information and level of detail that would be most helpful: \n\n- Patient Story insights are designed to familiarize clinicians with a patient they have not previously encountered. These summaries include history from notes and chart data, recent events, and other details related to the current admission, helping them prioritize and plan their care efficiently. Patient Story summaries are organized into three sections: history, events during admission, and recent events. The recent events section includes similar information to the freestanding Recent Events summary described below.\n\n- Notes summaries focus on summarizing relevant details from recent notes on the patient, helping clinicians quickly get up to speed on recent observations and developments or see highlights from the rest of the treatment team. \n\n- Recent Events summaries provide an overview of recently documented information on the patient, including intake/output, medications, results, orders, the problem list, notes, vitals, nursing assessments, and code events, ensuring that clinicians are aware of significant recent changes in a patient's condition since the last time they rounded.",
-    "list": "GenAI-2",
-    "kind": "feature",
-    "url": "https://uthealthsa.sharepoint.com/sites/BetterCare/_layouts/15/listform.aspx?PageType=4&ListId={0257b4b2-ec7a-450f-8020-aacdf0129d57}&ID=5",
-    "meta": {
-      "tags": [
-        "Gen AI - Clinicians"
-      ],
-      "audience": [
-        "Provider"
-      ],
-      "state": "Current"
-    },
-    "hash": "33097b76d00a"
-  },
-  {
-    "id": "GenAI-2:6",
-    "title": "ABC AI tool",
-    "text": "ABC AI tool\n\nRounding clinicians see a complex mix of patients, ranging from those they've been checking in with every day to those they've never met before. To help them quickly prepare for each of those patients, they can use generative AI to create three types of insights to fit the type of information and level of detail that would be most helpful: \n\n- Patient Story insights are designed to familiarize clinicians with a patient they have not previously encountered. These summaries include history from notes and chart data, recent events, and other details related to the current admission, helping them prioritize and plan their care efficiently. Patient Story summaries are organized into three sections: history, events during admission, and recent events. The recent events section includes similar information to the freestanding Recent Events summary described below.\n\n- Notes summaries focus on summarizing relevant details from recent notes on the patient, helping clinicians quickly get up to speed on recent observations and developments or see highlights from the rest of the treatment team. \n\n- Recent Events summaries provide an overview of recently documented information on the patient, including intake/output, medications, results, orders, the problem list, notes, vitals, nursing assessments, and code events, ensuring that clinicians are aware of significant recent changes in a patient's condition since the last time they rounded.",
-    "list": "GenAI-2",
-    "kind": "feature",
-    "url": "https://uthealthsa.sharepoint.com/sites/BetterCare/_layouts/15/listform.aspx?PageType=4&ListId={0257b4b2-ec7a-450f-8020-aacdf0129d57}&ID=6",
-    "meta": {
-      "tags": [
-        "Gen AI - Clinicians"
-      ],
-      "audience": [
-        "Provider"
-      ],
-      "state": "Current"
-    },
-    "hash": "f03c44761547"
-  },
-  {
-    "id": "GenAI-2:7",
-    "title": "LNM AI tool",
-    "text": "LNM AI tool\n\nRounding clinicians see a complex mix of patients, ranging from those they've been checking in with every day to those they've never met before. To help them quickly prepare for each of those patients, they can use generative AI to create three types of insights to fit the type of information and level of detail that would be most helpful: \n\n- Patient Story insights are designed to familiarize clinicians with a patient they have not previously encountered. These summaries include history from notes and chart data, recent events, and other details related to the current admission, helping them prioritize and plan their care efficiently. Patient Story summaries are organized into three sections: history, events during admission, and recent events. The recent events section includes similar information to the freestanding Recent Events summary described below.\n\n- Notes summaries focus on summarizing relevant details from recent notes on the patient, helping clinicians quickly get up to speed on recent observations and developments or see highlights from the rest of the treatment team. \n\n- Recent Events summaries provide an overview of recently documented information on the patient, including intake/output, medications, results, orders, the problem list, notes, vitals, nursing assessments, and code events, ensuring that clinicians are aware of significant recent changes in a patient's condition since the last time they rounded.",
-    "list": "GenAI-2",
-    "kind": "feature",
-    "url": "https://uthealthsa.sharepoint.com/sites/BetterCare/_layouts/15/listform.aspx?PageType=4&ListId={0257b4b2-ec7a-450f-8020-aacdf0129d57}&ID=7",
-    "meta": {
-      "tags": [
-        "Gen AI - Clinicians"
-      ],
-      "audience": [
-        "Provider"
-      ],
-      "state": "Current"
-    },
-    "hash": "1ff7f3c262b1"
   },
   {
     "id": "JTC Tips Sheets:1",
@@ -6462,44 +6244,6 @@
       "status": "Normal"
     },
     "hash": "f24bb180ee87"
-  },
-  {
-    "id": "Resource Directory:10",
-    "title": "Placeholder (test)",
-    "text": "Placeholder (test)\n\nCreate QuickActions to Efficiently Manage your In Basket.\n\nTEST Quick Actions (PDF)",
-    "list": "Resource Directory",
-    "kind": "resource",
-    "url": "https://uthealthsa.sharepoint.com/sites/BetterCare/_layouts/15/listform.aspx?PageType=4&ListId={a6925873-a0c8-4f35-81ac-cbb1724e4e4b}&ID=10",
-    "links": [
-      {
-        "text": "PDF",
-        "url": "http://www.google.com/"
-      }
-    ],
-    "meta": {
-      "app": "Qualified Health",
-      "status": "Normal"
-    },
-    "hash": "d659396138a7"
-  },
-  {
-    "id": "Resource Directory:11",
-    "title": "Placeholder 2 (test)",
-    "text": "Placeholder 2 (test)\n\ndfdfk d'f gf'dlgk f'd g'd flfdg Create QuickActions to Efficiently Manage your In Basket\n\nQuick Actions (PDF)m - test",
-    "list": "Resource Directory",
-    "kind": "resource",
-    "url": "https://uthealthsa.sharepoint.com/sites/BetterCare/_layouts/15/listform.aspx?PageType=4&ListId={a6925873-a0c8-4f35-81ac-cbb1724e4e4b}&ID=11",
-    "links": [
-      {
-        "text": "Quick Actions (PDF)",
-        "url": "http://www.google.com/"
-      }
-    ],
-    "meta": {
-      "app": "Qualified Health",
-      "status": "Normal"
-    },
-    "hash": "45801ad329ec"
   },
   {
     "id": "Resource Directory:12",

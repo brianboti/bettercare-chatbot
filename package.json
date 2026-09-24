@@ -6,6 +6,23 @@
     "extract": "node src/extract.mjs data/bettercare-corpus.json",
     "build:ext": "node tools/build-extension.mjs",
     "test:search": "node tools/test-search.mjs",
-    "build": "npm run extract && npm run build:ext && npm run test:search"
+    "build": "npm run extract && npm run build:ext && npm run test:search",
+    "start": "node --env-file-if-exists=.env server/index.mjs",
+    "ingest": "node src/ingest/index.mjs",
+    "export:receiver": "node tools/export-receiver.mjs",
+    "eval": "node --env-file-if-exists=.env tools/eval-retrieval.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "@huggingface/transformers": "^4.3.0",
+    "exceljs": "^4.4.0",
+    "jszip": "^3.10.2",
+    "linkedom": "^0.18.13",
+    "mammoth": "^1.12.3",
+    "unpdf": "^1.8.1"
+  },
+  "allowScripts": {
+    "onnxruntime-node@1.30.0": true,
+    "protobufjs@7.6.6": true
   }
 }

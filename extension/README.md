@@ -1,68 +1,78 @@
 # BetterCare Assistant — Chrome extension
 
 A loadable MV3 extension that opens a side panel next to the BetterCare
-SharePoint site and answers questions from the site's own content.
+SharePoint site and answers questions about the whole site — pages,
+documents, tip sheets, FAQs, events — with a citation for every claim.
 
-## Install (2 minutes, no admin needed)
+The panel is a thin client. Retrieval and the Claude call happen in the
+assistant server (`server/`), which runs locally.
 
-1. Run the build so the corpus and icons exist:
+## Run it
+
+1. Start the assistant server from the project root:
    ```sh
-   npm run build
+   npm start
    ```
-2. Open `chrome://extensions`
-3. Turn on **Developer mode** (top right)
-4. Click **Load unpacked** and select this `extension/` folder
-5. Pin **BetterCare Assistant** from the puzzle-piece menu so the icon is visible
+   It listens on `http://localhost:8787`. With `ANTHROPIC_API_KEY` in `.env`
+   it writes answers with Claude; without one it runs in retrieval-only mode
+   (shows the best-matching site content, still cited).
+2. Build the extension's offline corpus and icons (once):
+   ```sh
+   npm run build:ext
+   ```
+3. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**
+   and select this `extension/` folder. Pin **BetterCare Assistant**.
 
-Then open <https://uthealthsa.sharepoint.com/sites/BetterCare> and either:
+Open <https://uthealthsa.sharepoint.com/sites/BetterCare> and click the
+**Ask BetterCare** button (bottom right) or the toolbar icon.
 
-- click the **Ask BetterCare** button at the bottom right of the page, or
-- click the toolbar icon
+Requires Chrome 116+ (`sidePanel.open()`). Works in Edge too.
 
-Requires Chrome 116 or later (the `sidePanel.open()` API). Works in Edge too.
+## Settings
 
-## What it does and does not do
+The gear in the panel header sets the server address (default
+`http://localhost:8787`), stored in `chrome.storage.local`. Point it at a
+shared deployment later without rebuilding the extension.
 
-**It does not touch SharePoint.** The extension makes no network requests at
-all — not even reads. The content it searches was extracted separately and is
-bundled at `data/corpus.json`. Nothing is sent anywhere, and nothing on the
-site is modified. The only thing the content script does is add one button to
-the page in your own browser; unloading the extension removes it.
+The scope bar shows the connection:
 
-**There is no model connected.** This is the UI and the retrieval half, running
-for real. Ask a question and it ranks the 432 extracted chunks, then shows the
-matching site content verbatim with a link to the list item it came from. It
-never paraphrases, so it cannot state something the site doesn't say. The
-`Demo` tag in the composer marks this.
+| State | Meaning |
+|---|---|
+| **Connected** · N items | Server up, Claude answers |
+| **Retrieval-only mode** | Server up, no API key — shows matching content verbatim |
+| **Offline — using bundled search** | Server unreachable — keyword search over the list content bundled in `data/corpus.json` |
 
-To make it a real assistant, replace `answer()` in `sidepanel.js` with a call
-to the Claude API, passing the `search()` hits as context. That is the only
-change required — everything else is already in place.
+The panel re-checks the server on every question, so starting it later just works.
+
+## What the panel does
+
+- Streams the answer as it's written, with `[n]` chips that open the cited
+  SharePoint page, document, or list item in a new tab.
+- Lists the cited sources under each answer (title, section, date), with an
+  **Open doc** link when a list row points at a PDF or tip sheet. Uncited
+  retrieved items sit under "N more related".
+- Keeps the conversation, so follow-ups work ("what about for Android?").
+- Stop, Retry and New conversation; clear messages for rate limits, AI-service
+  errors and an unreachable server.
+
+## Safety
+
+The extension never writes to SharePoint. The content script only adds the
+launcher button on `/sites/BetterCare`. The side panel talks only to the
+configured assistant server.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `manifest.json` | MV3 manifest. Side panel + one content script, scoped to `/sites/BetterCare`. |
+| `manifest.json` | MV3 manifest. Side panel, storage, localhost access, one content script scoped to `/sites/BetterCare`. |
 | `background.js` | Service worker. Opens the panel; nothing else. |
 | `launcher.js` / `.css` | The **Ask BetterCare** button injected on the site. |
-| `sidepanel.html` / `.css` / `.js` | The panel itself. |
-| `search.js` | Ranking. No DOM, so `tools/test-search.mjs` runs it under node. |
-| `data/corpus.json` | Generated — do not edit. Rebuild with `npm run build:ext`. |
+| `sidepanel.html` / `.css` / `.js` | The panel. |
+| `lib/chat-api.js` | SSE client for the server. Shared with the site replica — the server serves it at `/lib/`. |
+| `lib/render.js` | Safe Markdown-subset renderer for answers (no innerHTML). Shared. |
+| `search.js` | Offline ranking. No DOM, so `tools/test-search.mjs` runs it under node. |
+| `data/corpus.json` | Generated offline corpus — do not edit. Rebuild with `npm run build:ext`. |
 | `icons/` | Generated by `tools/build-extension.mjs`. |
 
-## Behaviour worth reviewing
-
-- **Rows hidden on the live site are excluded.** Chunks flagged
-  `meta.published: false` (unreleased Phase 3/4 upgrade content) never appear
-  in results.
-- **Weak matches return nothing.** Short queries must be fully covered, longer
-  ones half covered, and the top score must clear a floor. "How do I file my
-  taxes" gets *"Nothing on this site covers that"* rather than a confident
-  wrong citation.
-- **Tip sheets say what they can't do.** A third of the corpus is document
-  metadata, so those results link the PDF and state plainly that its contents
-  aren't indexed, instead of guessing.
-
-Run `npm run test:search` to check ranking after changing `search.js`, or
-`node tools/test-search.mjs "your question"` to try one query.
+Run `npm run test:search` after changing `search.js`.
