@@ -32,8 +32,8 @@ npm run ingest                                  # data/site -> data/index/chunks
 npm start                                       # http://localhost:8787
 ```
 
-- **Replica:** open <http://localhost:8787>. Use the **Search or ask BetterCare**
-  box in the top bar or the **Ask BetterCare** button.
+- **Replica:** open <http://localhost:8787>. Use the **Search or ask Sophia**
+  box in the top bar or the **Ask Sophia** button.
 - **Extension:** `chrome://extensions` → Developer mode → Load unpacked →
   `extension/`. See [extension/README.md](extension/README.md).
 
@@ -144,7 +144,7 @@ so internal links work unchanged. Each page is its rendered snapshot with the
 suite bar and site header grafted in, links kept local (anything not exported
 opens on the real site), and `site/assistant.js` injected:
 
-- **Search or ask BetterCare** in the suite bar: live semantic results as you
+- **Search or ask Sophia** in the suite bar: live semantic results as you
   type, Enter asks the assistant, and **Compare with classic search** shows
   what an exact-keyword search returns for the same words.
 - **Assistant pane** (suite-bar button or floating launcher), Copilot-style.

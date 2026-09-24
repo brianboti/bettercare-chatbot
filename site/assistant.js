@@ -145,7 +145,7 @@ function mountPane() {
   });
 
   document.body.append(pane);
-  document.body.append(el('button', { class: 'bc-launcher', type: 'button', svg: `${ICON.spark}<span>Ask BetterCare</span>`, onclick: () => setOpen(true) }));
+  document.body.append(el('button', { class: 'bc-launcher', type: 'button', svg: `${ICON.spark}<span>Ask Sophia</span>`, onclick: () => setOpen(true) }));
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.open && !document.querySelector('.bc-search-pop:not([hidden])')) setOpen(false); });
 }
 
@@ -331,7 +331,7 @@ function retry(t) {
 function hookSearch() {
   const box = document.querySelector('#sbcId input, input[placeholder="Search this site"]');
   if (!box) return;
-  box.placeholder = 'Search or ask BetterCare';
+  box.placeholder = 'Search or ask Sophia';
   box.removeAttribute('readonly');
   box.closest('form')?.addEventListener('submit', (e) => e.preventDefault());
   // SharePoint's own styles keep the inactive box narrow and dim; make it look live.
@@ -362,7 +362,7 @@ function hookSearch() {
     pop.replaceChildren();
     const askBtn = el('button', { class: 'bc-sp-ask', type: 'button', onclick: () => submit(q) }, [
       el('span', { svg: ICON.spark, style: 'display:contents' }),
-      el('span', {}, ['Ask BetterCare: ', el('b', { text: q })]),
+      el('span', {}, ['Ask Sophia: ', el('b', { text: q })]),
       el('kbd', { text: 'Enter' }),
     ]);
     items.push(askBtn);
@@ -448,7 +448,7 @@ function hookSearch() {
 function mountSuiteButton() {
   const region = document.querySelector('#O365_HeaderRightRegion');
   if (!region) return;
-  region.prepend(el('button', { class: 'bc-suite-btn', type: 'button', svg: `${ICON.spark}<span>Ask BetterCare</span>`, onclick: () => setOpen(!state.open) }));
+  region.prepend(el('button', { class: 'bc-suite-btn', type: 'button', svg: `${ICON.spark}<span>Ask Sophia</span>`, onclick: () => setOpen(!state.open) }));
 }
 
 // ---------------------------------------------------------------- site navigation menus

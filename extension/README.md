@@ -24,7 +24,7 @@ assistant server (`server/`), which runs locally.
    and select this `extension/` folder. Pin **BetterCare Assistant**.
 
 Open <https://uthealthsa.sharepoint.com/sites/BetterCare> and click the
-**Ask BetterCare** button (bottom right) or the toolbar icon.
+**Ask Sophia** button (bottom right) or the toolbar icon.
 
 Requires Chrome 116+ (`sidePanel.open()`). Works in Edge too.
 
@@ -67,7 +67,7 @@ configured assistant server.
 |---|---|
 | `manifest.json` | MV3 manifest. Side panel, storage, localhost access, one content script scoped to `/sites/BetterCare`. |
 | `background.js` | Service worker. Opens the panel; nothing else. |
-| `launcher.js` / `.css` | The **Ask BetterCare** button injected on the site. |
+| `launcher.js` / `.css` | The **Ask Sophia** button injected on the site. |
 | `sidepanel.html` / `.css` / `.js` | The panel. |
 | `lib/chat-api.js` | SSE client for the server. Shared with the site replica — the server serves it at `/lib/`. |
 | `lib/render.js` | Safe Markdown-subset renderer for answers (no innerHTML). Shared. |
