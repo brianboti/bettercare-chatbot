@@ -8,7 +8,7 @@
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel
     .setPanelBehavior({ openPanelOnActionClick: true })
-    .catch((err) => console.warn('[BetterCare] setPanelBehavior:', err));
+    .catch((err) => console.warn('[Sophia] setPanelBehavior:', err));
 });
 
 // The on-page launcher asks us to open the panel. `sidePanel.open()` requires a

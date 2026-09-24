@@ -1,6 +1,6 @@
-// BetterCare Assistant — side panel.
+// Sophia Assistant — side panel.
 //
-// Online: a chat client of the BetterCare RAG server (server/, `npm start`).
+// Online: a chat client of the Sophia RAG server (server/, `npm start`).
 // Each question streams back a Claude answer grounded in the whole site —
 // pages, documents and lists — with [n] citations to the SharePoint source.
 //
@@ -113,7 +113,7 @@ async function loadOfflineCorpus() {
     OFFLINE_INDEX = buildIndex(corpus);
     $('#count').textContent = `${corpus.length} items`;
   } catch (err) {
-    console.error('[BetterCare] offline corpus', err);
+    console.error('[Sophia] offline corpus', err);
   }
 }
 
@@ -123,7 +123,7 @@ function showWelcome() {
   history.length = 0;
   thread().replaceChildren(
     el('div', { class: 'welcome' }, [
-      el('h1', { text: 'Ask anything on the BetterCare site.' }),
+      el('h1', { text: "Hi, I'm Sophia. Ask anything on the BetterCare site." }),
       el('p', {
         text: 'Pages, tip sheets, upgrade guides, FAQs, events and training. '
             + 'Every answer links back to where it came from.',

@@ -1,6 +1,6 @@
-# bettercare-chat
+# Sophia
 
-A RAG assistant for the UT Health San Antonio **BetterCare** SharePoint site
+**Sophia** is a RAG assistant for the UT Health San Antonio **BetterCare** SharePoint site
 (`/sites/BetterCare`). Ask in your own words; it searches every page, list,
 document, tip sheet and flyer on the site and answers with citations to the
 exact source.

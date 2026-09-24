@@ -1,4 +1,4 @@
-// Client for the BetterCare RAG backend. No DOM, no dependencies.
+// Client for the Sophia RAG backend. No DOM, no dependencies.
 //
 // Shared by the Chrome extension side panel and the local site replica (the
 // server serves this same file at /lib/chat-api.js), so both surfaces speak the

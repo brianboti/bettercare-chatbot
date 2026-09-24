@@ -1,4 +1,4 @@
-// BetterCare Assistant, integrated into the site replica.
+// Sophia Assistant, integrated into the site replica.
 //
 // What an SPFx integration on the real site would provide:
 //   - a Copilot-style pane on every page (suite-bar button + floating launcher)
@@ -107,7 +107,7 @@ let pane, thread, input, sendBtn, footMode;
 
 function mountPane() {
   thread = el('div', { class: 'bc-thread', 'aria-live': 'polite' });
-  input = el('textarea', { rows: '1', placeholder: 'Ask about Epic, Abridge, training, upgrades…', 'aria-label': 'Ask the BetterCare Assistant' });
+  input = el('textarea', { rows: '1', placeholder: 'Ask about Epic, Abridge, training, upgrades…', 'aria-label': 'Ask Sophia' });
   sendBtn = el('button', { class: 'bc-send', type: 'submit', 'aria-label': 'Send', svg: ICON.send, disabled: '' });
   footMode = el('span', { text: 'Answers from BetterCare content only' });
 
@@ -116,12 +116,12 @@ function mountPane() {
     el('div', { class: 'bc-foot' }, [footMode, el('span', { text: 'Shift+Enter for a new line' })]),
   ]);
 
-  pane = el('aside', { class: 'bc-pane', role: 'complementary', 'aria-label': 'BetterCare Assistant' }, [
+  pane = el('aside', { class: 'bc-pane', role: 'complementary', 'aria-label': 'Sophia Assistant' }, [
     el('div', { class: 'bc-head' }, [
       el('div', { class: 'bc-mark', svg: ICON.spark }),
-      el('div', { class: 'bc-title' }, [el('b', { text: 'BetterCare Assistant' }), el('span', { text: 'Searches every page, list and document on this site' })]),
+      el('div', { class: 'bc-title' }, [el('b', { text: 'Sophia Assistant' }), el('span', { text: 'Searches every page, list and document on BetterCare' })]),
       el('button', { class: 'bc-icon-btn', type: 'button', title: 'New conversation', 'aria-label': 'New conversation', svg: ICON.plus, onclick: reset }),
-      el('button', { class: 'bc-icon-btn', type: 'button', title: 'Close', 'aria-label': 'Close assistant', svg: ICON.close, onclick: () => setOpen(false) }),
+      el('button', { class: 'bc-icon-btn', type: 'button', title: 'Close', 'aria-label': 'Close Sophia', svg: ICON.close, onclick: () => setOpen(false) }),
     ]),
     thread,
     form,
@@ -168,7 +168,7 @@ function renderThread() {
   thread.replaceChildren();
   if (!state.turns.length) {
     thread.append(el('div', { class: 'bc-welcome' }, [
-      el('h2', { text: 'What are you looking for?' }),
+      el('h2', { text: "Hi, I'm Sophia. What are you looking for?" }),
       el('p', { text: 'Ask in your own words. I search every page, list, tip sheet and document on BetterCare and answer with links to the exact source.' }),
       el('div', { class: 'bc-suggests' }, SUGGESTIONS.map((q) => el('button', { class: 'bc-suggest', type: 'button', text: q, onclick: () => ask(q) }))),
     ]));

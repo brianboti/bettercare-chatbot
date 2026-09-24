@@ -1,4 +1,4 @@
-# BetterCare Assistant — Chrome extension
+# Sophia Assistant — Chrome extension
 
 A loadable MV3 extension that opens a side panel next to the BetterCare
 SharePoint site and answers questions about the whole site — pages,
@@ -21,7 +21,7 @@ assistant server (`server/`), which runs locally.
    npm run build:ext
    ```
 3. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**
-   and select this `extension/` folder. Pin **BetterCare Assistant**.
+   and select this `extension/` folder. Pin **Sophia Assistant**.
 
 Open <https://uthealthsa.sharepoint.com/sites/BetterCare> and click the
 **Ask Sophia** button (bottom right) or the toolbar icon.

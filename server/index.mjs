@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// BetterCare assistant server.
+// Sophia assistant server (answers from the BetterCare site).
 //
 //   npm start            (node --env-file-if-exists=.env server/index.mjs)
 //
@@ -168,7 +168,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(config.PORT, config.HOST, () => {
-  console.log(`\nBetterCare assistant  http://${config.HOST === '127.0.0.1' ? 'localhost' : config.HOST}:${config.PORT}`);
+  console.log(`\nSophia assistant  http://${config.HOST === '127.0.0.1' ? 'localhost' : config.HOST}:${config.PORT}`);
   console.log(`  mode: ${llmAvailable() ? `claude (${config.ANTHROPIC_MODEL}, effort ${config.ANTHROPIC_EFFORT})` : 'retrieval-only (no ANTHROPIC_API_KEY)'}`);
   console.log(`  corpus: ${chunks.length} chunks from ${new Set(chunks.map((c) => c.sourceId)).size} sources`);
 });

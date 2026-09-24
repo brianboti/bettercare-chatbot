@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "BetterCare Assistant",
+  "name": "Sophia Assistant",
   "version": "0.2.0",
-  "description": "Answers questions from the BetterCare SharePoint site, with a citation for every answer.",
+  "description": "Sophia answers questions from the BetterCare SharePoint site, with a citation for every answer.",
   "minimum_chrome_version": "116",
   "permissions": [
     "sidePanel",
@@ -17,7 +17,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "Open BetterCare Assistant",
+    "default_title": "Open Sophia",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png"

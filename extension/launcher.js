@@ -9,7 +9,7 @@
   const btn = document.createElement('button');
   btn.id = 'bc-assistant-launcher';
   btn.type = 'button';
-  btn.setAttribute('aria-label', 'Open BetterCare Assistant');
+  btn.setAttribute('aria-label', 'Open Sophia Assistant');
   btn.innerHTML = `
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -26,7 +26,7 @@
       // Chrome only lets the panel open from a user gesture. If that didn't
       // survive the hop to the service worker, say what to do instead.
       if (chrome.runtime.lastError || !res?.ok) {
-        hint.textContent = 'Click the BetterCare Assistant icon in the toolbar to open the panel.';
+        hint.textContent = 'Click the Sophia icon in the toolbar to open the panel.';
         hint.hidden = false;
         setTimeout(() => { hint.hidden = true; }, 5000);
       }
