@@ -26,6 +26,28 @@ const OUT_DIR = resolve(ROOT, 'data/index');
 
 const log = (...a) => console.log(...a);
 
+// The site footer shows on every page but isn't part of any page's content
+// (or the export), so it's indexed from what the live site displays.
+const SITE_FOOTER = {
+  id: 'site:footer',
+  sourceId: 'site:footer',
+  sourceType: 'page',
+  kind: 'page',
+  title: 'BetterCare site footer — help desk contacts',
+  headingPath: [],
+  text: [
+    'Shown at the bottom of every BetterCare page:',
+    '- Epic IT Help Desk: (210) 450-4800 or 210-450-HELP',
+    '- Email: HealthITSupport@uthscsa.edu',
+    '- Report issues on this site to BetterCare@uthscsa.edu',
+    '- Links: BetterCare Homepage, UT Health Connect',
+  ].join('\n'),
+  url: 'https://uthealthsa.sharepoint.com/sites/BetterCare',
+  localUrl: '/sites/BetterCare/SitePages/Home.aspx',
+  list: 'Site Pages',
+  meta: {},
+};
+
 function ingestLists() {
   const dir = resolve(SITE_DIR, 'lists');
   const corpus = readdirSync(dir).map((f) => {
@@ -105,7 +127,7 @@ async function main() {
   const linked = linkListRowsToPages(lists.chunks, pages.chunks);
   log(`  ${linked}/${lists.chunks.length} list rows linked to the page that displays them`);
 
-  const chunks = [...pages.chunks, ...lists.chunks, ...docs.chunks];
+  const chunks = [...pages.chunks, SITE_FOOTER, ...lists.chunks, ...docs.chunks];
 
   // Chunk ids must be unique — they key the embedding cache and citations.
   const seen = new Set();

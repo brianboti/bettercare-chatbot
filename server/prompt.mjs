@@ -4,7 +4,7 @@
 import { config } from './config.mjs';
 import { KIND_LABEL } from './corpus.mjs';
 
-export const PROMPT_VERSION = 'bc-2026-09-24.2';
+export const PROMPT_VERSION = 'bc-2026-09-25.1';
 
 // Byte-identical on every request (cacheable). Nothing volatile goes here.
 export const SYSTEM = `You are Sophia, an assistant that helps people use the ${config.SITE_NAME} SharePoint site of UT Health San Antonio's Clinical IT team. If asked who you are, you are Sophia. The site covers Epic (upgrades, Refuel phases, training, tip sheets, Haiku/Canto, Wisdom dental, Beaker lab), Abridge ambient AI documentation, generative AI in healthcare, analytics and reporting, and help-desk resources.
@@ -25,6 +25,7 @@ export const REWRITE_SYSTEM = `You turn the latest message in a conversation int
 
 Resolve pronouns and references using the conversation ("the second one", "that tip sheet", "when is it"). Keep names, product terms and acronyms exactly. Then add the site's own vocabulary for everyday words, since the site uses Epic product names:
 - phone / mobile app -> Haiku; iPad / tablet -> Canto; lab -> Beaker; dental / dentistry -> Wisdom; scheduling -> Cadence; reporting / dashboards -> SlicerDicer, Cogito; inbox / messages -> In Basket; AI scribe / ambient listening / dictation -> Abridge; help / ticket / broken -> Help Desk, TeamDynamix, service desk; downtime -> BCA, business continuity; training / classes -> Thrive, training.
+Relative references to Epic upgrades ("the last upgrade", "the next one", "the current version") must be replaced with the specific version from the site facts, written in all its spellings (e.g. vFebruary2026 vFeb2026 vFeb26). If the question names a role (surgeon, nurse, front desk, pharmacist), keep the role and add the Epic application for that role (surgeon -> OpTime, surgical; anesthesia -> Anesthesia; nurse -> nursing, inpatient; front desk -> Cadence, Prelude, registration; pharmacist -> Willow; lab -> Beaker).
 Only add terms that plausibly relate to the question. If the message is unrelated to the site, just restate it. Output only the query, one line, no quotes.`;
 
 function excerptHeader(n, c) {
@@ -39,7 +40,7 @@ function excerptHeader(n, c) {
 }
 
 /** The user turn: excerpts, then the question. */
-export function buildUserTurn(question, results, { lowConfidence, today }) {
+export function buildUserTurn(question, results, { lowConfidence, today, facts, broad }) {
   const excerpts = results.map((c, i) => {
     const links = (c.links || []).slice(0, 8).map((l) => `  - ${l.text}: ${l.url}`).join('\n');
     return `${excerptHeader(i + 1, c)}\n${c.text}${links ? `\nLinks:\n${links}` : ''}`;
@@ -49,5 +50,8 @@ export function buildUserTurn(question, results, { lowConfidence, today }) {
     ? '\n\nNote: the search found only weak matches for this question. If the excerpts do not clearly answer it, say you could not find it on the site rather than stretching them.'
     : '';
 
-  return `<excerpts>\n${excerpts || '(no matching content found)'}\n</excerpts>\n\nToday's date: ${today}${hedge}\n\nQuestion: ${question}`;
+  const scope = broad
+    ? '\n\nThis is a broad question. Go through all the excerpts and pull together everything relevant to the person\'s role or topic, grouped sensibly (e.g. by Epic application). Say which upgrade or source each item comes from. Leave out items that clearly don\'t apply to them.'
+    : '';
+  return `<excerpts>\n${excerpts || '(no matching content found)'}\n</excerpts>\n\n<site_facts>\n${facts || ''}\n</site_facts>\n\nToday's date: ${today}${hedge}${scope}\n\nQuestion: ${question}`;
 }

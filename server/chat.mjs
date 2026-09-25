@@ -75,10 +75,11 @@ export async function runChat({ retriever }, messages, send, signal) {
     //    garbage unless rewritten against the conversation, and everyday words
     //    ("phone") miss the site's vocabulary ("Haiku") unless expanded. The
     //    user's own words are searched too, and both result lists fused.
+    const facts = retriever.facts.describe();
     let query = question;
     if (useLlm) {
       send('status', { stage: 'rewriting' });
-      try { query = await rewriteQuery(history, question); } catch { /* fall back to the raw question */ }
+      try { query = await rewriteQuery(history, question, facts); } catch { /* fall back to the raw question */ }
     } else if (history.length) {
       query = `${history.filter((m) => m.role === 'user').slice(-1)[0]?.content || ''} ${question}`;
     }
@@ -87,7 +88,11 @@ export async function runChat({ retriever }, messages, send, signal) {
     // 2. Retrieve.
     send('status', { stage: 'retrieving', query });
     const queries = history.length ? [query] : [question, query];
-    const { results, confidence, lowConfidence } = await retriever.retrieve(queries);
+    const broad = isBroad(question);
+    const { results, confidence, lowConfidence } = await retriever.retrieve(queries, broad
+      ? { topK: config.BROAD_TOP_K, maxPerSource: config.BROAD_MAX_PER_SOURCE }
+      : {});
+    log.broad = broad;
     log.retrieved = results.map((r) => ({ id: r.id, score: r.score, cos: r.cosine && +r.cosine.toFixed(3), by: r.retrievedBy }));
     log.confidence = confidence;
     send('sources', results.map((c, i) => sourceView(c, i + 1)));
@@ -104,7 +109,7 @@ export async function runChat({ retriever }, messages, send, signal) {
     const today = new Date().toLocaleDateString('en-US', { timeZone: 'America/Chicago', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     const apiMessages = [
       ...history,
-      { role: 'user', content: buildUserTurn(question, results, { lowConfidence, today }) },
+      { role: 'user', content: buildUserTurn(question, results, { lowConfidence, today, facts, broad }) },
     ];
     let answer = '';
     const out = await streamAnswer(apiMessages, {
@@ -135,6 +140,11 @@ export async function runChat({ retriever }, messages, send, signal) {
       appendFileSync(resolve(LOG_DIR, 'chat.jsonl'), `${JSON.stringify(log)}\n`);
     } catch { /* logging must never break a turn */ }
   }
+}
+
+/** "What's new for surgeons", "summarize the upgrade", "everything about X". */
+export function isBroad(q) {
+  return /\b(what('?s| is| are)? new|what changed|changes|summar\w*|overview|highlights?|everything|all (the )?(changes|features|updates)|key features|need to know|should .* know)\b/i.test(q);
 }
 
 /** No-LLM mode: present the best matches verbatim, with citations. */

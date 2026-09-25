@@ -26,7 +26,7 @@ const fallback = () => (config.REFUSAL_FALLBACK
  * Rewrite the latest message into a standalone, vocabulary-expanded search
  * query, using the conversation when there is one.
  */
-export async function rewriteQuery(history, latest) {
+export async function rewriteQuery(history, latest, facts = '') {
   const transcript = history.length
     ? history.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 1500)}`).join('\n')
     : '(no earlier messages)';
@@ -37,7 +37,7 @@ export async function rewriteQuery(history, latest) {
     output_config: { effort: 'low' },
     ...fallback(),
     system: REWRITE_SYSTEM,
-    messages: [{ role: 'user', content: `<conversation>\n${transcript}\n</conversation>\n\nLatest message: ${latest}` }],
+    messages: [{ role: 'user', content: `${facts ? `<site_facts>\n${facts}\n</site_facts>\n\n` : ''}<conversation>\n${transcript}\n</conversation>\n\nLatest message: ${latest}` }],
   });
   if (res.stop_reason === 'refusal') return latest;
   const text = res.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();

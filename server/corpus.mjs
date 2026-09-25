@@ -61,6 +61,8 @@ export function loadChunks() {
     const indexText = [
       `${KIND_LABEL[c.kind] || c.kind} — ${c.list || ''}`,
       where,
+      // A document's folder often names what it's about ("Upgrade vFebruary2026").
+      c.meta?.folder ? `Folder: ${c.meta.folder}` : null,
       c.text,
       ...facets(c.meta),
     ].filter(Boolean).join('\n');

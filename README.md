@@ -113,8 +113,17 @@ on the live site.
   Reciprocal Rank Fusion; max 3 chunks per source so one long PDF can't crowd
   out everything else.
 - **Query rewrite** (`llm.mjs`, `prompt.mjs`): Claude turns follow-ups into
-  standalone questions and adds the site's vocabulary; the user's words and the
-  rewrite are both searched and fused.
+  standalone questions and adds the site's vocabulary (surgeon → OpTime, lab →
+  Beaker); the user's words and the rewrite are both searched and fused.
+- **Dates** (`facts.mjs`): "the last / next / previous upgrade" is resolved
+  against today's date and the site's Upgrade Timeline list, in every spelling
+  the site uses (vFebruary2026, vFeb2026, vFeb26). This happens in retrieval
+  itself, so the search box gets it too, and the schedule is given to Claude.
+- **Broad questions** ("what's new for surgeons", "summarize…") get 16
+  passages, up to 8 from one deck, and an instruction to group by application.
+- **De-duplication**: the same deck as PDF and PowerPoint shares one budget,
+  repeated calendar rows are capped at 2, near-identical passages are dropped,
+  and web parts copied onto many pages are indexed once.
 - **Answer** (`chat.mjs`): `claude-opus-5`, adaptive thinking, effort `low`,
   streamed. Every claim cited `[n]`; says so plainly when the site doesn't
   cover something. Server-side refusal fallback is on (`fallbacks: "default"`).
@@ -129,10 +138,10 @@ candidates, confidence threshold, rate limit.
 ### Eval
 
 ```sh
-npm run eval           # recall@8 + MRR over 25 real questions, and 5 off-topic ones
+npm run eval           # recall + MRR over 30 real questions, and 5 off-topic ones
 ```
 
-Current: **recall@8 = 1.00, MRR ≈ 0.84, off-topic flagged 5/5**. Run it after
+Current: **recall = 1.00 (30/30), MRR ≈ 0.80, off-topic flagged 5/5** (top 8, or top 16 for broad questions). Run it after
 any change to ingestion, chunking, embeddings or ranking; add questions from
 `data/logs/chat.jsonl` that retrieved badly.
 

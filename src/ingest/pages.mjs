@@ -112,9 +112,11 @@ function snapshotSections(html, known) {
 export function ingestPages(siteDir) {
   const pagesDir = resolve(siteDir, 'pages');
   const snapDir = resolve(siteDir, 'snapshots');
-  const report = { pages: 0, excluded: [], chunks: 0, withSnapshot: 0 };
+  const report = { pages: 0, excluded: [], chunks: 0, withSnapshot: 0, boilerplateDropped: 0 };
   const chunks = [];
 
+  // Pass 1: sections for every page.
+  const pages = [];
   for (const f of readdirSync(pagesDir).sort()) {
     const p = JSON.parse(readFileSync(resolve(pagesDir, f), 'utf8'));
     const name = p.FileLeafRef;
@@ -130,6 +132,32 @@ export function ingestPages(siteDir) {
       report.withSnapshot++;
       sections.push(...snapshotSections(readFileSync(snap, 'utf8'), known));
     }
+    pages.push({ p, name, sections, links });
+  }
+
+  // Boilerplate: web parts copied onto many pages (the "Help Desk / Epic
+  // Service Desk" quick links are on dozens) would otherwise fill every
+  // result list. Keep each on one page only — Home if it's there.
+  const norm = (t) => t.toLowerCase().replace(/\s+/g, ' ').trim();
+  const onPages = new Map();
+  for (const { name, sections } of pages) {
+    for (const s of sections) {
+      const k = norm(s.text);
+      if (k.length < 40) continue;
+      if (!onPages.has(k)) onPages.set(k, []);
+      if (!onPages.get(k).includes(name)) onPages.get(k).push(name);
+    }
+  }
+  const home = (list) => list.find((n) => /^home\.aspx$/i.test(n)) || list[0];
+
+  // Pass 2: chunks.
+  for (const { p, name, sections: all, links } of pages) {
+    const sections = all.filter((s) => {
+      const where = onPages.get(norm(s.text));
+      if (!where || where.length < 3 || home(where) === name) return true;
+      report.boilerplateDropped++;
+      return false;
+    });
 
     const title = clean(p.Title) || name.replace(/\.aspx$/i, '').replace(/-/g, ' ');
     if (p.Description) sections.unshift({ heading: null, text: clean(p.Description) });

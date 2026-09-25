@@ -6,12 +6,17 @@
 //   npm run eval                 all questions
 //   npm run eval -- --verbose    show the top results for every question
 //
+// Recall is measured at the depth the chat actually uses: top 8, or top 16
+// for broad questions (see isBroad in server/chat.mjs).
+//
 // Each case lists substrings; a result matches if its id or title contains
 // any of them (case-insensitive), or for "text:..." if its text does. `null` means the question is off-topic and
 // should come back low-confidence.
 
 import { loadChunks } from '../server/corpus.mjs';
 import { buildRetriever } from '../server/retriever.mjs';
+import { isBroad } from '../server/chat.mjs';
+import { config } from '../server/config.mjs';
 
 const K = 8;
 const CASES = [
@@ -40,6 +45,13 @@ const CASES = [
   ['How do I get access to Abridge?',                            ['AbridgeInside', 'How do I get started', 'Abridge', 'access Abridge']],
   ['Where can I find Abridge office hours?',                     ['text:office hours']],
   ['What AI tools are approved for use?',                        ['Approved Gen AI', 'Approved-Gen', 'AITools']],
+  // Time-relative and role-filtered upgrade questions ("last" = most recent
+  // go-live before today, per the Upgrade Timeline list).
+  ['What should a surgeon know about what is new in Epic with the last upgrade?', ['text:Surgical Scheduling']],
+  ['What changed for anesthesia in the latest upgrade?',        ['text:preprocedure evaluation']],
+  ['What is coming in the next Epic upgrade?',                   ['text:vMay2026', 'text:vMay26']],
+  ['When did the last upgrade go live?',                         ['Upgrade Timeline:8']],
+  ['What was new in the previous upgrade?',                      ['vNovember2025', 'vNov25', 'text:vNovember2025']],
   ['how do I file my taxes',                                     null],
   ['best pizza delivery near me',                                null],
   ['What is the weather in Austin tomorrow?',                    null],
@@ -53,7 +65,11 @@ const retriever = await buildRetriever(loadChunks(), { log: console.error });
 let hits = 0, rr = 0, answerable = 0, offOk = 0, off = 0;
 const confs = [];
 for (const [q, expect] of CASES) {
-  const { results, confidence, lowConfidence } = await retriever.retrieve(q, { topK: K });
+  // Same settings the chat uses: broad questions get more, deeper context.
+  const broad = isBroad(q);
+  const { results, confidence, lowConfidence } = await retriever.retrieve(q, broad
+    ? { topK: config.BROAD_TOP_K, maxPerSource: config.BROAD_MAX_PER_SOURCE }
+    : { topK: K });
   if (expect === null) {
     off++;
     if (lowConfidence) offOk++;
@@ -67,7 +83,7 @@ for (const [q, expect] of CASES) {
   const rank = results.findIndex((r) => expect.some((e) => matches(r, e)));
   confs.push(confidence);
   if (rank >= 0) { hits++; rr += 1 / (rank + 1); }
-  console.log(`${rank >= 0 ? 'PASS' : 'FAIL'}  rank ${rank >= 0 ? rank + 1 : '-'}  (confidence ${confidence.toFixed(3)})  ${q}`);
+  console.log(`${rank >= 0 ? 'PASS' : 'FAIL'}  rank ${rank >= 0 ? rank + 1 : '-'}${broad ? `/${config.BROAD_TOP_K}` : ''}  (confidence ${confidence.toFixed(3)})  ${q}`);
   if (verbose || rank < 0) {
     results.slice(0, 5).forEach((r, i) => console.log(`        ${i + 1}. ${r.title.slice(0, 70)}  [${r.id.slice(0, 60)}] ${r.retrievedBy.join('+')}`));
   }

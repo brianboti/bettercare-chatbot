@@ -42,6 +42,10 @@ export const config = Object.freeze({
   RETRIEVAL_CANDIDATES: int('RETRIEVAL_CANDIDATES', 40),
   RETRIEVAL_TOP_K: int('RETRIEVAL_TOP_K', 8),
   MAX_PER_SOURCE: int('MAX_PER_SOURCE', 3),
+  // Broad questions ("what's new for surgeons in the last upgrade") need a
+  // whole deck's worth of context, not eight scattered passages.
+  BROAD_TOP_K: int('BROAD_TOP_K', 16),
+  BROAD_MAX_PER_SOURCE: int('BROAD_MAX_PER_SOURCE', 8),
   // Cosine similarity of the best semantic match below which we tell the model
   // retrieval is weak. Tuned against tools/eval-retrieval.mjs.
   LOW_CONFIDENCE_THRESHOLD: Number(env.LOW_CONFIDENCE_THRESHOLD || 0.69),

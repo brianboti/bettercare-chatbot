@@ -8,6 +8,7 @@
 
 import { config } from './config.mjs';
 import { embedChunks, embedQuery } from './embedder.mjs';
+import { buildFacts } from './facts.mjs';
 
 // ---------------------------------------------------------------- keyword
 
@@ -45,6 +46,8 @@ const SYNONYMS = {
   inbox: ['basket', 'inbasket'], ticket: ['teamdynamix', 'help', 'desk'],
   downtime: ['bca', 'continuity'], report: ['slicerdicer', 'reporting'], dashboard: ['cogito', 'slicerdicer'],
   training: ['thrive'], class: ['training'], upgrade: ['refuel'],
+  surgeon: ['surgical', 'optime', 'surgery', 'procedure'], surgery: ['surgical', 'optime', 'procedure'],
+  nurse: ['nursing'], anesthesiologist: ['anesthesia'], pharmacist: ['willow', 'pharmacy'],
 };
 
 /** Query terms with weights: the user's own words 1, added synonyms 0.35. */
@@ -90,6 +93,8 @@ export async function buildRetriever(chunks, opts = {}) {
   const bodyIdx = new BM25(chunks.map((c) => tokenize(c.indexText)));
   const vectors = await embedChunks(chunks, opts);
   const vecs = chunks.map((c) => vectors.get(c.id));
+  const facts = buildFacts(chunks);
+  const cos = (a, b) => { let d = 0; for (let j = 0; j < a.length; j++) d += a[j] * b[j]; return d; };
 
   function keyword(query, n) {
     const terms = expand([...new Set(tokenize(query))]);
@@ -117,10 +122,15 @@ export async function buildRetriever(chunks, opts = {}) {
    * @returns {{ results: RetrievedChunk[], confidence: number, lowConfidence: boolean }}
    *   confidence is the best cosine similarity among the returned results.
    */
-  async function retrieve(query, { topK = config.RETRIEVAL_TOP_K, candidates = config.RETRIEVAL_CANDIDATES } = {}) {
+  async function retrieve(query, {
+    topK = config.RETRIEVAL_TOP_K,
+    candidates = config.RETRIEVAL_CANDIDATES,
+    maxPerSource = config.MAX_PER_SOURCE,
+  } = {}) {
     // Several phrasings of one question (the user's words + an expanded
-    // rewrite) are each searched both ways, and all lists are fused.
-    const queries = [...new Set([].concat(query).map((q) => q.trim()).filter(Boolean))];
+    // rewrite) are each searched both ways, and all lists are fused. "The last
+    // upgrade" is resolved to its version first (see facts.mjs).
+    const queries = [...new Set([].concat(query).map((q) => facts.expand(q.trim())).filter(Boolean))];
     const lists = await Promise.all(queries.map(async (q) => ({ kw: keyword(q, candidates), vec: await vector(q, candidates) })));
 
     // RRF: score = Σ 1 / (k + rank). k=60 is the standard constant.
@@ -140,18 +150,20 @@ export async function buildRetriever(chunks, opts = {}) {
     const cosOf = new Map();
     for (const { i, s } of vec) if (!cosOf.has(i)) cosOf.set(i, s);   // vec is sorted, so first = best
 
-    // Diversify: at most MAX_PER_SOURCE chunks from one page/document, and no
-    // two results with identical text (the same Q&A copied across lists).
-    const perSource = new Map();
-    const seenText = new Set();
+    // Diversify, so near-copies don't crowd out other sources:
+    //  - at most maxPerSource chunks per title (a deck saved as both PDF and
+    //    PowerPoint shares one budget), and 2 per title for list rows (a
+    //    class repeated on eight calendar dates)
+    //  - no page/document chunk nearly identical to one already chosen
+    const perTitle = new Map();
     const top = [];
     for (const e of [...fused.values()].sort((a, b) => b.rrf - a.rrf)) {
       const c = chunks[e.i];
-      const n = perSource.get(c.sourceId) || 0;
-      const key = c.text.toLowerCase().replace(/\W+/g, ' ').trim();
-      if (n >= config.MAX_PER_SOURCE || seenText.has(key)) continue;
-      perSource.set(c.sourceId, n + 1);
-      seenText.add(key);
+      const key = `${c.sourceType === 'list-item' ? 'L' : 'D'}:${c.title.toLowerCase().replace(/\W+/g, ' ').trim()}`;
+      const n = perTitle.get(key) || 0;
+      if (n >= (c.sourceType === 'list-item' ? 2 : maxPerSource)) continue;
+      if (c.sourceType !== 'list-item' && top.some((t) => cos(vecs[t.i], vecs[e.i]) > 0.97)) continue;
+      perTitle.set(key, n + 1);
       top.push(e);
       if (top.length >= topK) break;
     }
@@ -168,5 +180,5 @@ export async function buildRetriever(chunks, opts = {}) {
     return { results, confidence, lowConfidence: confidence < config.LOW_CONFIDENCE_THRESHOLD };
   }
 
-  return { retrieve, size: chunks.length };
+  return { retrieve, facts, size: chunks.length };
 }
