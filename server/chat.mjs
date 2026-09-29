@@ -9,6 +9,9 @@ import { config } from './config.mjs';
 import { ROOT } from './corpus.mjs';
 import { PROMPT_VERSION, buildUserTurn } from './prompt.mjs';
 import { llmAvailable, rewriteQuery, streamAnswer, Anthropic } from './llm.mjs';
+import { SuggestionSplitter } from './followups.mjs';
+import { tagTopics } from './topics.mjs';
+import { describePerson } from './personalize.mjs';
 
 const LOG_DIR = resolve(ROOT, 'data/logs');
 
@@ -58,17 +61,28 @@ export function sourceView(c, n) {
 }
 
 /**
- * @param {object} deps  { retriever }
+ * @param {object} deps  { retriever, store }
  * @param {{role,content}[]} messages
  * @param {(event:string, data:any) => void} send
  * @param {AbortSignal} signal
+ * @param {{ user?: object, conversationId?: string }} ctx  who is asking; the turn is saved to their history
  */
-export async function runChat({ retriever }, messages, send, signal) {
+export async function runChat({ retriever, store }, messages, send, signal, { user = null, conversationId = null } = {}) {
   const t0 = Date.now();
   const question = messages[messages.length - 1].content;
   const history = messages.slice(0, -1);
   const useLlm = llmAvailable();
-  const log = { at: new Date().toISOString(), question, promptVersion: PROMPT_VERSION };
+  const log = { at: new Date().toISOString(), question, promptVersion: PROMPT_VERSION, user: user?.id || null };
+  const person = user && store ? describePerson(store, user) : '';
+  const turn = { question, topics: [], intent: null, answer: '', sources: [], suggestions: null };
+  let saved = null;
+  const saveTurn = () => {
+    if (!user || !store || saved) return saved;
+    try {
+      saved = store.addTurn({ ...turn, userId: user.id, conversationId: conversationId || `c-${Date.now()}`, rewritten: log.rewritten, latencyMs: Date.now() - t0 });
+    } catch (e) { console.warn('could not save turn:', e.message); }
+    return saved;
+  };
 
   try {
     // 1. Search query. Follow-ups ("what about the second one?") retrieve
@@ -79,29 +93,39 @@ export async function runChat({ retriever }, messages, send, signal) {
     let query = question;
     if (useLlm) {
       send('status', { stage: 'rewriting' });
-      try { query = await rewriteQuery(history, question, facts); } catch { /* fall back to the raw question */ }
+      try {
+        const r = await rewriteQuery(history, question, facts, person);
+        query = r.query; turn.topics = r.topics; turn.intent = r.intent;
+      } catch { /* fall back to the raw question */ }
     } else if (history.length) {
       query = `${history.filter((m) => m.role === 'user').slice(-1)[0]?.content || ''} ${question}`;
     }
-    log.rewritten = query;
+    // Follow-ups ("shorter please") inherit the topic of the conversation.
+    if (!turn.topics.length) turn.topics = tagTopics(question).length ? tagTopics(question) : tagTopics(query);
+    log.rewritten = query; log.intent = turn.intent; log.topics = turn.topics;
 
     // 2. Retrieve.
     send('status', { stage: 'retrieving', query });
     const queries = history.length ? [query] : [question, query];
-    const broad = isBroad(question);
+    const broad = turn.intent === 'broad' || isBroad(question);
     const { results, confidence, lowConfidence } = await retriever.retrieve(queries, broad
       ? { topK: config.BROAD_TOP_K, maxPerSource: config.BROAD_MAX_PER_SOURCE }
       : {});
     log.broad = broad;
     log.retrieved = results.map((r) => ({ id: r.id, score: r.score, cos: r.cosine && +r.cosine.toFixed(3), by: r.retrievedBy }));
     log.confidence = confidence;
-    send('sources', results.map((c, i) => sourceView(c, i + 1)));
+    turn.sources = results.map((c, i) => sourceView(c, i + 1));
+    turn.confidence = confidence; turn.lowConfidence = lowConfidence;
+    send('sources', turn.sources);
 
     // 3. Generate.
     if (!useLlm) {
       send('status', { stage: 'generating' });
-      send('token', { text: extractiveAnswer(results, lowConfidence) });
-      send('done', { finishReason: 'retrieval_only', mode: 'retrieval-only', model: null, promptVersion: PROMPT_VERSION, rewrittenQuery: query, confidence, latencyMs: Date.now() - t0 });
+      turn.answer = extractiveAnswer(results, lowConfidence);
+      turn.mode = 'retrieval-only';
+      send('token', { text: turn.answer });
+      const turnId = saveTurn();
+      send('done', { finishReason: 'retrieval_only', mode: 'retrieval-only', model: null, promptVersion: PROMPT_VERSION, rewrittenQuery: query, confidence, latencyMs: Date.now() - t0, turnId });
       return;
     }
 
@@ -109,26 +133,38 @@ export async function runChat({ retriever }, messages, send, signal) {
     const today = new Date().toLocaleDateString('en-US', { timeZone: 'America/Chicago', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     const apiMessages = [
       ...history,
-      { role: 'user', content: buildUserTurn(question, results, { lowConfidence, today, facts, broad }) },
+      { role: 'user', content: buildUserTurn(question, results, { lowConfidence, today, facts, broad, person, intent: turn.intent }) },
     ];
-    let answer = '';
+    // The trailing <suggestions> block is cut out of the visible stream.
+    let split = new SuggestionSplitter();
     const out = await streamAnswer(apiMessages, {
-      onText: (text) => { answer += text; send('token', { text }); },
-      onReset: () => { answer = ''; send('reset', {}); },
+      onText: (text) => { const shown = split.push(text); if (shown) { turn.answer += shown; send('token', { text: shown }); } },
+      onReset: () => { split = new SuggestionSplitter(); turn.answer = ''; send('reset', {}); },
     }, signal);
+    const tail = split.finish();
+    if (tail.text) { turn.answer += tail.text; send('token', { text: tail.text }); }
+    turn.answer = turn.answer.trimEnd();
+    turn.suggestions = tail.suggestions;
+    if (tail.suggestions) send('suggestions', tail.suggestions);
     log.model = out.model; log.usage = out.usage; log.stopReason = out.stopReason;
+    turn.mode = 'claude';
 
     if (out.stopReason === 'refusal') {
+      turn.error = 'refused';
+      saveTurn();
       send('error', { code: 'REFUSED', message: "I can't help with that one. Try rephrasing, or search the site directly." });
       return;
     }
+    const turnId = saveTurn();
     send('done', {
       finishReason: out.stopReason, mode: 'claude', model: out.model, promptVersion: PROMPT_VERSION,
-      rewrittenQuery: query, confidence, latencyMs: Date.now() - t0,
+      rewrittenQuery: query, confidence, latencyMs: Date.now() - t0, turnId,
     });
   } catch (err) {
     if (signal?.aborted) return;
     log.error = String(err?.message || err);
+    turn.error = log.error.slice(0, 300);
+    saveTurn();
     const code = err instanceof Anthropic.RateLimitError ? 'RATE_LIMITED'
       : err instanceof Anthropic.APIError ? 'UPSTREAM_LLM'
       : 'INTERNAL';
@@ -148,7 +184,7 @@ export function isBroad(q) {
 }
 
 /** No-LLM mode: present the best matches verbatim, with citations. */
-function extractiveAnswer(results, lowConfidence) {
+export function extractiveAnswer(results, lowConfidence) {
   if (!results.length || lowConfidence) {
     return "I couldn't find a clear answer on the BetterCare site. The closest matches are listed below.";
   }

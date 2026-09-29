@@ -40,6 +40,27 @@ npm start                                       # http://localhost:8787
 The first start embeds the corpus locally (a few minutes on CPU); later
 starts reuse `data/embeddings.json` and only embed what changed.
 
+## Personal assistant features
+
+Sophia knows who is asking (in the replica, pick a person from the avatar
+menu next to **Ask Sophia**; "Someone new" shows the first-visit introduction):
+
+- **Introduction** on first visit: asks your name and role, one question at a time.
+- **Welcome cards** built for you: what Clinical IT wants your role to see, a next
+  step on what you asked before, what people in your role ask, and what's new.
+- **History** (clock icon): past conversations, reopen and continue.
+- **Answers sized to the question**, with quick replies when Sophia needs one more
+  detail, related questions, thumbs up/down, **Shorter** and **More detail**.
+- **Insights dashboard** at `/admin` (sign in as Taylor Brooks): what people ask by
+  role and topic, where they struggle, what they open, and the pushed content.
+
+```sh
+npm run seed:demo      # demo people, a month of questions, 3 pushed items (demo=1)
+npm test               # unit tests
+```
+
+Plans and status: [docs/ROADMAP.md](docs/ROADMAP.md).
+
 ## Safety rule
 
 **Everything that touches SharePoint is read-only.** The exporter issues only

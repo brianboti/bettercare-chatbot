@@ -5,7 +5,14 @@
 //
 //   GET  /api/health     mode, model, corpus size
 //   GET  /api/search     hybrid retrieval, no LLM   ?q=...&k=10
-//   POST /api/chat       SSE answer stream           { messages: [{role, content}] }
+//   POST /api/chat       SSE answer stream           { messages: [{role, content}], conversationId? }
+//   GET  /api/me         the signed-in user (X-Sophia-User header)   POST: save profile
+//   GET  /api/welcome    personalized greeting + suggestion cards
+//   GET  /api/history    past conversations          /api/history/<conversationId>: its turns
+//   POST /api/feedback   { turnId, value: 1|-1, note? }
+//   POST /api/events     { type, turnId?, ref?, data? }   usage events for insights
+//   GET  /api/admin/insights, GET|POST /api/admin/promotions   (admins only)
+//   GET  /admin          the insights dashboard
 //   GET  /lib/*          shared client modules (extension/lib)
 //   GET  /*              the local site replica (site/)
 
@@ -18,6 +25,9 @@ import { buildRetriever } from './retriever.mjs';
 import { runChat, parseMessages, sourceView, ChatError } from './chat.mjs';
 import { llmAvailable } from './llm.mjs';
 import { PROMPT_VERSION } from './prompt.mjs';
+import { openStore } from './store.mjs';
+import { welcome } from './personalize.mjs';
+import { ROLES } from './topics.mjs';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -36,6 +46,7 @@ const chunks = loadChunks();
 const retriever = await buildRetriever(chunks, { log: (m) => console.log(m) });
 const site = await import('../site/server.mjs').catch((e) => { console.warn('site replica disabled:', e.message); return null; });
 site?.init?.({ chunks });
+const store = openStore(config.DB_FILE);
 
 // ---------------------------------------------------------------- helpers
 
@@ -46,7 +57,7 @@ function cors(req) {
   return ok ? {
     'Access-Control-Allow-Origin': o,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Accept',
+    'Access-Control-Allow-Headers': 'Content-Type, Accept, X-Sophia-User',
     'Access-Control-Allow-Private-Network': 'true',
     Vary: 'Origin',
   } : {};
@@ -99,6 +110,23 @@ function rateLimited(key) {
   return 0;
 }
 
+// Who is asking. The demo trusts the X-Sophia-User header (set by the
+// replica's "signed in as" switcher, or by the extension from the SharePoint
+// user). Production replaces this with a validated Entra ID token.
+function currentUser(req) {
+  const id = String(req.headers['x-sophia-user'] || '').trim().toLowerCase().slice(0, 120);
+  if (!/^[a-z0-9._@-]+$/.test(id)) return { id: null, user: null };
+  const user = store.getUser(id);
+  if (user) store.touchUser(id);
+  return { id, user };
+}
+
+const EVENT_TYPES = new Set(['citation_click', 'suggestion_click', 'promo_click', 'promo_dismiss', 'history_open', 'copy_answer', 'welcome_card_click']);
+
+function requireAdmin(user) {
+  if (!user?.isAdmin) throw new ChatError('FORBIDDEN', 'Admins only.', 403);
+}
+
 // ---------------------------------------------------------------- routes
 
 const server = createServer(async (req, res) => {
@@ -138,16 +166,106 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { results }, h);
     }
 
+    if (url.pathname === '/api/me') {
+      const { id, user } = currentUser(req);
+      if (req.method === 'POST') {
+        if (!id) throw new ChatError('BAD_REQUEST', 'X-Sophia-User header required');
+        const b = await readBody(req, 4000);
+        const fields = {};
+        if (typeof b.name === 'string') fields.name = b.name.trim().slice(0, 80) || null;
+        if (typeof b.role === 'string') { if (!ROLES[b.role]) throw new ChatError('BAD_REQUEST', 'unknown role'); fields.role = b.role; }
+        if (typeof b.department === 'string') fields.department = b.department.trim().slice(0, 80) || null;
+        if (typeof b.email === 'string') fields.email = b.email.trim().slice(0, 120) || null;
+        return json(res, 200, { user: store.saveUser(id, fields) }, h);
+      }
+      return json(res, 200, { user, roles: Object.entries(ROLES).map(([key, r]) => ({ key, label: r.label })) }, h);
+    }
+
+    // The people the replica's "signed in as" switcher offers.
+    if (url.pathname === '/api/demo-users') {
+      return json(res, 200, { users: store.listUsers({ demo: true }).filter((u) => !u.id.startsWith('peer-')).map(({ id, name, role, department, isAdmin }) => ({ id, name, role, department, isAdmin })) }, h);
+    }
+
+    if (url.pathname === '/api/welcome') {
+      const { user } = currentUser(req);
+      if (!user?.role) return json(res, 200, { needsOnboarding: true, user }, h);
+      const w = await welcome(store, user, { chunks, facts: retriever.facts });
+      for (const c of w.cards) if (c.promoId) store.addEvent({ userId: user.id, type: 'promo_shown', ref: String(c.promoId) });
+      return json(res, 200, { user, ...w }, h);
+    }
+
+    if (url.pathname === '/api/history' || url.pathname.startsWith('/api/history/')) {
+      const { user } = currentUser(req);
+      if (!user) return json(res, 200, { conversations: [] }, h);
+      const conv = decodeURIComponent(url.pathname.slice('/api/history/'.length));
+      if (url.pathname.startsWith('/api/history/') && conv) return json(res, 200, { conversationId: conv, turns: store.conversation(user.id, conv) }, h);
+      return json(res, 200, { conversations: store.conversations(user.id, 100) }, h);
+    }
+
+    if (url.pathname === '/api/feedback' && req.method === 'POST') {
+      const { user } = currentUser(req);
+      const b = await readBody(req, 4000);
+      const value = b.value > 0 ? 1 : b.value < 0 ? -1 : null;
+      if (!user || !Number.isInteger(b.turnId) || value == null) throw new ChatError('BAD_REQUEST', 'turnId and value required');
+      const ok = store.setFeedback(b.turnId, user.id, value, typeof b.note === 'string' ? b.note.slice(0, 500) : null);
+      return json(res, ok ? 200 : 404, { ok }, h);
+    }
+
+    if (url.pathname === '/api/events' && req.method === 'POST') {
+      const { user } = currentUser(req);
+      const b = await readBody(req, 8000);
+      if (!EVENT_TYPES.has(b.type)) throw new ChatError('BAD_REQUEST', 'unknown event type');
+      store.addEvent({ userId: user?.id, type: b.type, turnId: Number.isInteger(b.turnId) ? b.turnId : null, ref: b.ref != null ? String(b.ref).slice(0, 300) : null, data: b.data && typeof b.data === 'object' ? b.data : null });
+      return json(res, 200, { ok: true }, h);
+    }
+
+    if (url.pathname === '/api/admin/insights') {
+      requireAdmin(currentUser(req).user);
+      const days = Math.min(365, Math.max(1, Number(url.searchParams.get('days')) || 30));
+      const role = ROLES[url.searchParams.get('role')] ? url.searchParams.get('role') : null;
+      return json(res, 200, { ...store.insights({ days, role }), roles: Object.entries(ROLES).map(([key, r]) => ({ key, label: r.label })) }, h);
+    }
+
+    if (url.pathname === '/api/admin/promotions') {
+      const { user } = currentUser(req);
+      requireAdmin(user);
+      if (req.method === 'POST') {
+        const b = await readBody(req, 8000);
+        if (!b.title?.trim() || !b.prompt?.trim()) throw new ChatError('BAD_REQUEST', 'title and prompt required');
+        const roles = (Array.isArray(b.roles) ? b.roles : []).filter((r) => ROLES[r]);
+        const date = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(d || '') ? d : null);
+        const p = store.savePromotion({
+          id: Number.isInteger(b.id) ? b.id : undefined, title: b.title.trim().slice(0, 120), blurb: String(b.blurb || '').slice(0, 400),
+          prompt: b.prompt.trim().slice(0, 300), roles, starts: date(b.starts), ends: date(b.ends),
+          priority: Number(b.priority) || 0, active: b.active !== false,
+        }, user.id);
+        return json(res, 200, { promotion: p }, h);
+      }
+      return json(res, 200, { promotions: store.listPromotions() }, h);
+    }
+
+    if (url.pathname === '/admin' || url.pathname === '/admin/') {
+      if (serveFile(req, res, resolve(ROOT, 'site/admin'), 'index.html', { 'Cache-Control': 'no-cache' })) return;
+    }
+    if (url.pathname.startsWith('/admin/')) {
+      if (serveFile(req, res, resolve(ROOT, 'site/admin'), url.pathname.slice(7), { 'Cache-Control': 'no-cache' })) return;
+    }
+
     if (url.pathname === '/api/chat' && req.method === 'POST') {
-      const wait = rateLimited(req.socket.remoteAddress || 'local');
+      const { id: userKey, user: known } = currentUser(req);
+      // Someone who skipped the introduction still gets a history.
+      const user = known || (userKey ? store.saveUser(userKey, {}) : null);
+      const wait = rateLimited(userKey || req.socket.remoteAddress || 'local');
       if (wait) return json(res, 429, { code: 'RATE_LIMITED', message: `Too many questions — try again in ${wait}s.`, retryAfter: wait }, { ...h, 'Retry-After': String(wait) });
-      const messages = parseMessages(await readBody(req));
+      const body = await readBody(req);
+      const messages = parseMessages(body);
+      const conversationId = typeof body.conversationId === 'string' && /^[\w-]{4,64}$/.test(body.conversationId) ? body.conversationId : null;
 
       res.writeHead(200, { ...h, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
       const ctl = new AbortController();
       res.on('close', () => ctl.abort());
       const send = (event, data) => { if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
-      await runChat({ retriever }, messages, send, ctl.signal);
+      await runChat({ retriever, store }, messages, send, ctl.signal, { user, conversationId });
       res.end();
       return;
     }

@@ -2,7 +2,8 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from './config.mjs';
-import { SYSTEM, REWRITE_SYSTEM } from './prompt.mjs';
+import { SYSTEM, REWRITE_SYSTEM, rewriteSchema } from './prompt.mjs';
+import { TOPIC_NAMES, cleanTopics } from './topics.mjs';
 
 let client = null;
 
@@ -24,9 +25,11 @@ const fallback = () => (config.REFUSAL_FALLBACK
 
 /**
  * Rewrite the latest message into a standalone, vocabulary-expanded search
- * query, using the conversation when there is one.
+ * query, and classify it (topics for personalization and analytics, intent
+ * for answer length).
+ * @returns {Promise<{ query: string, topics: string[], intent: string|null }>}
  */
-export async function rewriteQuery(history, latest, facts = '') {
+export async function rewriteQuery(history, latest, facts = '', person = '') {
   const transcript = history.length
     ? history.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 1500)}`).join('\n')
     : '(no earlier messages)';
@@ -34,14 +37,38 @@ export async function rewriteQuery(history, latest, facts = '') {
     model: config.ANTHROPIC_MODEL,
     max_tokens: 1024,
     thinking: { type: 'disabled' },
-    output_config: { effort: 'low' },
+    output_config: { effort: 'low', format: { type: 'json_schema', schema: rewriteSchema(TOPIC_NAMES) } },
     ...fallback(),
     system: REWRITE_SYSTEM,
-    messages: [{ role: 'user', content: `${facts ? `<site_facts>\n${facts}\n</site_facts>\n\n` : ''}<conversation>\n${transcript}\n</conversation>\n\nLatest message: ${latest}` }],
+    messages: [{ role: 'user', content: `${facts ? `<site_facts>\n${facts}\n</site_facts>\n\n` : ''}${person ? `<person>\n${person}\n</person>\n\n` : ''}<conversation>\n${transcript}\n</conversation>\n\nLatest message: ${latest}` }],
   });
-  if (res.stop_reason === 'refusal') return latest;
+  const fallbackResult = { query: latest, topics: [], intent: null };
+  if (res.stop_reason === 'refusal') return fallbackResult;
   const text = res.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
-  return text.split('\n')[0].slice(0, 500) || latest;
+  try {
+    const out = JSON.parse(text);
+    return { query: String(out.query || latest).split('\n')[0].slice(0, 500), topics: cleanTopics(out.topics), intent: out.intent || null };
+  } catch {
+    return fallbackResult;
+  }
+}
+
+/**
+ * One short structured call: Claude writes the welcome line and phrases the
+ * suggestion cards in Sophia's voice. `schema` constrains the output.
+ */
+export async function generateJson(system, content, schema, { maxTokens = 1500 } = {}) {
+  const res = await anthropic().beta.messages.create({
+    model: config.ANTHROPIC_MODEL,
+    max_tokens: maxTokens,
+    thinking: { type: 'disabled' },
+    output_config: { effort: 'low', format: { type: 'json_schema', schema } },
+    ...fallback(),
+    system,
+    messages: [{ role: 'user', content }],
+  });
+  if (res.stop_reason !== 'end_turn') return null;
+  try { return JSON.parse(res.content.filter((b) => b.type === 'text').map((b) => b.text).join('')); } catch { return null; }
 }
 
 /**

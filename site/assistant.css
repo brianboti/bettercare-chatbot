@@ -294,3 +294,123 @@ html[data-bc-pane-open] .bc-pane { transform: none; visibility: visible; }
 .bc-faq-item summary:hover { background: var(--bc-surface-2); }
 .bc-faq-answer { padding: 0 8px 14px 28px; color: var(--bc-ink-2); }
 .bc-faq-answer p { margin: 0 0 8px; }
+
+/* ------------------------------------------------------------ signed-in person (demo switcher) */
+.bc-user-btn {
+  display: inline-grid; place-items: center; width: 36px; height: 36px; margin-right: 6px;
+  border: 0; border-radius: 50%; background: none; cursor: pointer; padding: 0;
+}
+.bc-user-btn:hover .bc-avatar { box-shadow: 0 0 0 2px rgba(255,255,255,.6); }
+.bc-avatar {
+  display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+  background: #fff; color: var(--bc-primary-dark); font: 600 12px var(--bc-font); flex: 0 0 auto;
+}
+.bc-avatar--sm { width: 26px; height: 26px; font-size: 11px; background: var(--bc-primary-lighter); }
+.bc-usermenu {
+  position: fixed; z-index: 2147483004; width: 280px; padding: 6px 0;
+  background: #fff; color: var(--bc-ink); border-radius: 6px; font: 13px/1.35 var(--bc-font);
+  box-shadow: 0 25.6px 57.6px rgba(0,0,0,.22), 0 4.8px 14.4px rgba(0,0,0,.18);
+}
+.bc-usermenu-head { padding: 8px 14px 10px; border-bottom: 1px solid var(--bc-line-soft); }
+.bc-usermenu-head b { display: block; font-size: 14px; }
+.bc-usermenu-head small, .bc-usermenu button small { display: block; color: var(--bc-ink-3); font-size: 11.5px; }
+.bc-usermenu-label { padding: 10px 14px 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--bc-ink-3); }
+.bc-usermenu button {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 14px;
+  border: 0; background: none; text-align: left; font: 13px var(--bc-font); color: var(--bc-ink); cursor: pointer;
+}
+.bc-usermenu button:hover, .bc-usermenu button.bc-on { background: var(--bc-surface-2); }
+.bc-usermenu button.bc-on { box-shadow: inset 3px 0 0 var(--bc-primary); }
+.bc-usermenu-link { display: block; padding: 10px 14px 6px; margin-top: 4px; border-top: 1px solid var(--bc-line-soft); color: var(--bc-primary-dark) !important; font-weight: 600; }
+
+/* ------------------------------------------------------------ first-run introduction */
+.bc-intro { display: flex; flex-direction: column; gap: 14px; }
+.bc-intro-msg { display: flex; gap: 10px; align-items: flex-start; animation: bc-rise .25s ease both; }
+.bc-mark--sm { width: 26px; height: 26px; border-radius: 7px; margin-top: 2px; }
+.bc-mark--sm svg { width: 14px; height: 14px; }
+.bc-intro-msg h2 { margin: 0 0 4px; }
+.bc-intro-msg p { margin: 0; color: var(--bc-ink); font-size: 14px; }
+.bc-intro-q { font-weight: 600; margin-bottom: 8px !important; }
+.bc-intro-form { display: flex; gap: 8px; margin-top: 8px; }
+.bc-intro-input {
+  flex: 1; min-width: 0; padding: 7px 10px; border: 1px solid var(--bc-line); border-radius: 6px;
+  font: 14px var(--bc-font); color: var(--bc-ink);
+}
+.bc-intro-input:focus { outline: 0; border-color: var(--bc-primary); box-shadow: 0 0 0 1px var(--bc-primary); }
+.bc-intro-answer {
+  align-self: flex-start; margin-top: 8px; padding: 6px 12px; border-radius: 12px 12px 12px 2px;
+  background: var(--bc-primary-light); color: #3B1A06; font-size: 14px;
+}
+@keyframes bc-rise { from { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .bc-intro-msg { animation: none; } }
+
+/* ------------------------------------------------------------ chips (roles, quick replies, related) */
+.bc-chips, .bc-sugs { display: flex; flex-wrap: wrap; gap: 6px; }
+.bc-chip {
+  padding: 6px 12px; border: 1px solid var(--bc-line); border-radius: 16px; background: #fff;
+  font: 13px/1.3 var(--bc-font); color: var(--bc-ink); cursor: pointer; text-align: left;
+}
+.bc-chip:hover:not(:disabled) { border-color: var(--bc-primary); background: var(--bc-primary-lighter); }
+.bc-chip:disabled { opacity: .55; cursor: default; }
+.bc-chip--primary { background: var(--bc-primary); border-color: var(--bc-primary); color: #fff; font-weight: 600; }
+.bc-chip--primary:hover:not(:disabled) { background: var(--bc-primary-dark) !important; color: #fff; }
+.bc-sugs--reply .bc-chip { border-color: var(--bc-primary); color: var(--bc-primary-dark); }
+.bc-sugs-label { width: 100%; font-size: 11.5px; font-weight: 600; color: var(--bc-ink-3); }
+.bc-extras { display: flex; flex-direction: column; gap: 8px; }
+.bc-extras:empty { display: none; }
+
+/* ------------------------------------------------------------ personal welcome */
+.bc-cards { display: flex; flex-direction: column; gap: 8px; }
+.bc-card {
+  position: relative; display: flex; border: 1px solid var(--bc-line); border-radius: 8px; background: #fff;
+}
+.bc-card:hover { border-color: var(--bc-primary); background: var(--bc-primary-lighter); }
+.bc-card-main {
+  flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 0; background: none;
+  text-align: left; cursor: pointer; font: 13.5px/1.35 var(--bc-font); color: var(--bc-ink);
+}
+.bc-card-lead { font-size: 11px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--bc-ink-3); }
+.bc-card--org .bc-card-lead { color: var(--bc-primary-dark); }
+.bc-card--continue .bc-card-lead { color: #0F7B8A; }
+.bc-card--peers .bc-card-lead { color: #5C2E91; }
+.bc-card-x {
+  align-self: flex-start; margin: 6px 6px 0 0; width: 24px; height: 24px; display: grid; place-items: center;
+  border: 0; border-radius: 4px; background: none; color: var(--bc-ink-3); cursor: pointer;
+}
+.bc-card-x:hover { background: var(--bc-line-soft); color: var(--bc-ink); }
+.bc-card-x svg { width: 12px; height: 12px; }
+.bc-card--skeleton { height: 58px; border-color: var(--bc-line-soft); background: linear-gradient(90deg, var(--bc-surface-2) 0%, #fff 50%, var(--bc-surface-2) 100%); background-size: 200% 100%; animation: bc-shimmer 1.2s infinite linear; }
+@keyframes bc-shimmer { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .bc-card--skeleton { animation: none; } }
+
+.bc-recent { margin-top: 18px; display: flex; flex-direction: column; gap: 2px; }
+.bc-recent:empty { display: none; }
+.bc-recent-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; font-weight: 600; color: var(--bc-ink-2); margin-bottom: 4px; }
+.bc-link-btn { border: 0; background: none; padding: 0; font: 600 12px var(--bc-font); color: var(--bc-primary-dark); cursor: pointer; }
+.bc-recent-item, .bc-history-item {
+  display: flex; justify-content: space-between; gap: 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px;
+  background: none; text-align: left; font: 13px/1.35 var(--bc-font); color: var(--bc-ink); cursor: pointer;
+}
+.bc-recent-item:hover, .bc-history-item:hover { background: var(--bc-surface-2); }
+.bc-recent-item small, .bc-history-item small { flex: 0 0 auto; color: var(--bc-ink-3); font-size: 11.5px; }
+
+/* ------------------------------------------------------------ history */
+.bc-history h3 { margin: 0; font: 600 16px var(--bc-font); }
+.bc-history-head { display: flex; align-items: center; gap: 6px; margin: -4px 0 8px -8px; }
+.bc-history h4 { margin: 14px 0 4px; font: 600 11.5px var(--bc-font); text-transform: uppercase; letter-spacing: .05em; color: var(--bc-ink-3); }
+.bc-history-list { list-style: none; margin: 0; padding: 0; }
+.bc-muted { color: var(--bc-ink-2); font-size: 13px; }
+.bc-icon-btn.bc-on { background: var(--bc-primary-lighter); color: var(--bc-primary-dark); }
+
+/* ------------------------------------------------------------ answer actions */
+.bc-actions { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+.bc-act {
+  height: 28px; min-width: 28px; display: inline-grid; place-items: center; padding: 0 6px;
+  border: 0; border-radius: 4px; background: none; color: var(--bc-ink-3); cursor: pointer; font: 12px var(--bc-font);
+}
+.bc-act svg { width: 15px; height: 15px; }
+.bc-act:hover:not(:disabled) { background: var(--bc-surface-2); color: var(--bc-ink); }
+.bc-act.bc-on { color: var(--bc-primary-dark); background: var(--bc-primary-lighter); }
+.bc-act.bc-on svg { fill: var(--bc-primary-light); }
+.bc-act--text { color: var(--bc-ink-2); border: 1px solid var(--bc-line-soft); margin-left: 4px; }
+.bc-thanks { font-size: 12px; color: var(--bc-ink-3); margin-left: 6px; }

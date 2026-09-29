@@ -2,6 +2,8 @@
 //
 // Load a .env file with:  node --env-file-if-exists=.env server/index.mjs
 
+import { fileURLToPath } from 'node:url';
+
 const env = process.env;
 
 const int = (key, dflt) => {
@@ -49,6 +51,9 @@ export const config = Object.freeze({
   // Cosine similarity of the best semantic match below which we tell the model
   // retrieval is weak. Tuned against tools/eval-retrieval.mjs.
   LOW_CONFIDENCE_THRESHOLD: Number(env.LOW_CONFIDENCE_THRESHOLD || 0.69),
+
+  // Users, question history, feedback, pushed content (SQLite).
+  DB_FILE: env.SOPHIA_DB || fileURLToPath(new URL('../data/sophia.db', import.meta.url)),
 
   MAX_HISTORY_TURNS: int('MAX_HISTORY_TURNS', 10),
   MAX_QUESTION_CHARS: int('MAX_QUESTION_CHARS', 2000),

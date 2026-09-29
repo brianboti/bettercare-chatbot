@@ -2,27 +2,29 @@
 //
 // What an SPFx integration on the real site would provide:
 //   - a Copilot-style pane on every page (suite-bar button + floating launcher)
+//   - a personal welcome: Sophia introduces itself on first visit, asks the
+//     person's role, then greets them with suggestions built for them (what
+//     Clinical IT wants them to see, what they asked before, what people in
+//     the same role ask, what's new)
+//   - question history, feedback, quick replies and follow-up questions
 //   - the "Search this site" box upgraded: live semantic results as you type,
 //     Enter asks the assistant; a toggle shows what classic keyword search finds
 //   - citations that open the cited page and highlight the exact passage
 //   - working dropdowns for the site navigation
 //
-// The conversation lives in sessionStorage, so the pane stays open with its
-// history when a citation navigates to another page.
+// Who is signed in: on the real site SharePoint provides the user. The
+// replica has no sign-in, so a "signed in as" switcher in the suite bar picks
+// a demo person (or "someone new" to see the first-run introduction).
+//
+// The open conversation lives in sessionStorage, so the pane stays open with
+// its history when a citation navigates to another page. Everything else
+// (profile, history) is on the server.
 
-import { streamChat, searchApi, health } from '/lib/chat-api.js';
+import { streamChat, searchApi, health, apiJson } from '/lib/chat-api.js';
 import { renderAnswer } from '/lib/render.js';
 
 const API = location.origin;
-const STORE = 'bc-assistant-v1';
-
-const SUGGESTIONS = [
-  'How do I set up Haiku on my phone?',
-  'When is the next Epic upgrade?',
-  'How do I get access to Abridge?',
-  'Where is the cash drawer tip sheet?',
-  'Who do I contact for Epic help?',
-];
+const USER_KEY = 'sophia-user';
 
 const KIND = {
   page: ['PG', '--bc-k-page', 'Page'], news: ['NEWS', '--bc-k-news', 'News'], faq: ['FAQ', '--bc-k-faq', 'FAQ'],
@@ -40,6 +42,11 @@ const ICON = {
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
   stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>',
+  history: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>',
+  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>',
+  up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M7 11v9H4v-9zM7 11l4-8c1.7 0 2.7 1.2 2.3 2.8L12.6 9H19a2 2 0 0 1 2 2.3l-1.2 7A2 2 0 0 1 17.8 20H7"/></svg>',
+  down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M7 13V4H4v9zM7 13l4 8c1.7 0 2.7-1.2 2.3-2.8L12.6 15H19a2 2 0 0 0 2-2.3l-1.2-7A2 2 0 0 0 17.8 4H7"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
 };
 
 // ---------------------------------------------------------------- utilities
@@ -64,18 +71,61 @@ function kindIcon(kind) {
 }
 
 const kindLabel = (k) => (KIND[k] || [null, null, k])[2];
+const firstName = (name) => (name || '').replace(/^(Dr\.?|Mr\.?|Ms\.?|Mrs\.?)\s+/i, '').split(/\s+/)[0] || '';
+const initials = (name) => (name || '?').replace(/^(Dr\.?)\s+/i, '').split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+
+// ---------------------------------------------------------------- who is signed in
+
+function loadUserId() {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    if (!raw) return null;
+    try { return JSON.parse(raw).id || null; } catch { return raw; }
+  } catch { return null; }
+}
+
+function setUserId(id) {
+  try { localStorage.setItem(USER_KEY, JSON.stringify({ id })); } catch { /* private mode */ }
+}
+
+// A first visit with no one picked is "someone new": the introduction runs.
+let userId = loadUserId();
+if (!userId) { userId = `guest-${Math.random().toString(36).slice(2, 10)}`; setUserId(userId); }
+let me = null;          // server profile, or null until loaded
+let roles = [];
+
+const api = (path, opts = {}) => apiJson(API, path, { userId, ...opts });
+
+/** Usage events for the insights dashboard. Survives page navigation. */
+function track(type, fields = {}) {
+  try {
+    fetch(`${API}/api/events`, {
+      method: 'POST', keepalive: true,
+      headers: { 'Content-Type': 'application/json', 'X-Sophia-User': userId },
+      body: JSON.stringify({ type, ...fields }),
+    }).catch(() => {});
+  } catch { /* ignore */ }
+}
+
+// ---------------------------------------------------------------- conversation state
+
+const STORE = () => `bc-assistant-v2:${userId}`;
+const newConversationId = () => `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 function load() {
-  try { return JSON.parse(sessionStorage.getItem(STORE)) || { open: false, turns: [] }; } catch { return { open: false, turns: [] }; }
+  try { return JSON.parse(sessionStorage.getItem(STORE())) || null; } catch { return null; }
 }
 function save() {
-  try { sessionStorage.setItem(STORE, JSON.stringify({ open: state.open, turns: state.turns.filter((t) => !t.pending) })); } catch { /* private mode */ }
+  try {
+    sessionStorage.setItem(STORE(), JSON.stringify({ open: state.open, conversationId: state.conversationId, turns: state.turns.filter((t) => !t.pending) }));
+  } catch { /* private mode */ }
 }
 
-const state = load();
+const state = { open: false, conversationId: newConversationId(), turns: [], ...load() };
+let view = 'chat';        // 'chat' | 'history'
+let welcomeData = null;   // cached /api/welcome result
 let busy = false;
 let ctl = null;
-let mode = null;
 
 // ---------------------------------------------------------------- navigation to a source
 
@@ -87,7 +137,8 @@ function sourceHref(s) {
   return { href: `${s.localUrl.split('#')[0]}#bc-hl=${encodeURIComponent(JSON.stringify(hl))}`, external: false };
 }
 
-function openSource(s, e) {
+function openSource(s, e, t) {
+  if (t) track('citation_click', { turnId: t.turnId, ref: s.id, data: { title: s.title, kind: s.kind, url: s.url } });
   const { href, external } = sourceHref(s);
   if (external) return;                       // plain link, new tab
   e?.preventDefault();
@@ -103,11 +154,11 @@ function openSource(s, e) {
 
 // ---------------------------------------------------------------- pane
 
-let pane, thread, input, sendBtn, footMode;
+let pane, thread, input, sendBtn, footMode, historyBtn;
 
 function mountPane() {
   thread = el('div', { class: 'bc-thread', 'aria-live': 'polite' });
-  input = el('textarea', { rows: '1', placeholder: 'Ask about Epic, Abridge, training, upgrades…', 'aria-label': 'Ask Sophia' });
+  input = el('textarea', { rows: '1', placeholder: 'Ask about Epic, Abridge, training, upgrades…', 'aria-label': 'Ask Sophia', id: 'bc-input' });
   sendBtn = el('button', { class: 'bc-send', type: 'submit', 'aria-label': 'Send', svg: ICON.send, disabled: '' });
   footMode = el('span', { text: 'Answers from BetterCare content only' });
 
@@ -116,10 +167,12 @@ function mountPane() {
     el('div', { class: 'bc-foot' }, [footMode, el('span', { text: 'Shift+Enter for a new line' })]),
   ]);
 
+  historyBtn = el('button', { class: 'bc-icon-btn', type: 'button', title: 'Your past questions', 'aria-label': 'History', svg: ICON.history, onclick: () => (view === 'history' ? showChat() : showHistory()) });
   pane = el('aside', { class: 'bc-pane', role: 'complementary', 'aria-label': 'Sophia Assistant' }, [
     el('div', { class: 'bc-head' }, [
       el('div', { class: 'bc-mark', svg: ICON.spark }),
       el('div', { class: 'bc-title' }, [el('b', { text: 'Sophia Assistant' }), el('span', { text: 'Searches every page, list and document on BetterCare' })]),
+      historyBtn,
       el('button', { class: 'bc-icon-btn', type: 'button', title: 'New conversation', 'aria-label': 'New conversation', svg: ICON.plus, onclick: reset }),
       el('button', { class: 'bc-icon-btn', type: 'button', title: 'Close', 'aria-label': 'Close Sophia', svg: ICON.close, onclick: () => setOpen(false) }),
     ]),
@@ -159,36 +212,197 @@ function setOpen(open) {
 function reset() {
   ctl?.abort();
   state.turns = [];
+  state.conversationId = newConversationId();
   save();
-  renderThread();
+  showChat();
   input.focus();
+}
+
+function showChat() {
+  view = 'chat';
+  historyBtn.classList.remove('bc-on');
+  renderThread();
 }
 
 function renderThread() {
   thread.replaceChildren();
-  if (!state.turns.length) {
-    thread.append(el('div', { class: 'bc-welcome' }, [
-      el('h2', { text: "Hi, I'm Sophia. What are you looking for?" }),
-      el('p', { text: 'Ask in your own words. I search every page, list, tip sheet and document on BetterCare and answer with links to the exact source.' }),
-      el('div', { class: 'bc-suggests' }, SUGGESTIONS.map((q) => el('button', { class: 'bc-suggest', type: 'button', text: q, onclick: () => ask(q) }))),
-    ]));
-    return;
-  }
-  for (const t of state.turns) thread.append(t.role === 'user' ? userTurn(t.content) : assistantTurn(t).node);
+  if (!state.turns.length) { renderWelcome(); return; }
+  const last = state.turns[state.turns.length - 1];
+  for (const t of state.turns) thread.append(t.role === 'user' ? userTurn(t.content) : assistantTurn(t, t === last).node);
   thread.scrollTop = thread.scrollHeight;
 }
+
+// ---------------------------------------------------------------- welcome and first-run introduction
+
+function sophiaSays(...children) {
+  return el('div', { class: 'bc-intro-msg' }, [el('div', { class: 'bc-mark bc-mark--sm', svg: ICON.spark, 'aria-hidden': 'true' }), el('div', {}, children)]);
+}
+
+/** Muse-style first run: introduce, ask the name, then the role. One question at a time. */
+function renderIntroduction() {
+  const box = el('div', { class: 'bc-welcome bc-intro' });
+  thread.append(box);
+  box.append(sophiaSays(
+    el('h2', { text: "Hi, I'm Sophia." }),
+    el('p', { text: "I find things on BetterCare for you: tip sheets, what changed in an upgrade, training dates, who to call. I also remember what you've asked, so I get more useful over time." }),
+  ));
+
+  const askRole = (name) => {
+    const chips = el('div', { class: 'bc-chips', role: 'group', 'aria-label': 'Your role' }, roles.map((r) => el('button', {
+      class: 'bc-chip', type: 'button', text: r.label,
+      onclick: async () => {
+        for (const b of chips.querySelectorAll('button')) b.disabled = true;
+        const res = await api('/api/me', { body: { role: r.key, ...(name ? { name } : {}) } });
+        if (res?.user) me = res.user;
+        welcomeData = null;
+        if (!state.turns.length) renderThread();
+        renderUserButton();
+      },
+    })));
+    box.append(sophiaSays(
+      el('p', { class: 'bc-intro-q', text: `${name ? `Nice to meet you, ${firstName(name)}. ` : ''}What's your role? I'll show you what matters for your work.` }),
+      chips,
+    ));
+    chips.querySelector('button')?.focus();
+  };
+
+  if (me?.name) { askRole(null); return; }
+  const nameInput = el('input', { class: 'bc-intro-input', type: 'text', id: 'bc-intro-name', placeholder: 'Your first name', autocomplete: 'given-name', 'aria-label': 'Your name', maxlength: '60' });
+  const form = el('form', { class: 'bc-intro-form' }, [
+    nameInput,
+    el('button', { class: 'bc-chip bc-chip--primary', type: 'submit', text: 'Continue' }),
+  ]);
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = nameInput.value.trim();
+    form.replaceWith(el('div', { class: 'bc-intro-answer', text: name || '(skipped)' }));
+    askRole(name || null);
+  });
+  box.append(sophiaSays(el('p', { class: 'bc-intro-q', text: 'What should I call you?' }), form));
+  setTimeout(() => nameInput.focus(), 60);
+}
+
+async function renderWelcome() {
+  if (!me?.role) { renderIntroduction(); return; }
+
+  const box = el('div', { class: 'bc-welcome' });
+  thread.append(box);
+  const greeting = el('h2', { text: me?.name ? `Hi ${firstName(me.name)}.` : 'Hi.' });
+  const cards = el('div', { class: 'bc-cards', 'aria-busy': 'true' }, [0, 1, 2].map(() => el('div', { class: 'bc-card bc-card--skeleton', 'aria-hidden': 'true' })));
+  const recent = el('div', { class: 'bc-recent' });
+  box.append(greeting, el('p', { text: 'Ask me anything about BetterCare, or start here:' }), cards, recent);
+
+  const [w, h] = await Promise.all([welcomeData || api('/api/welcome'), api('/api/history')]);
+  if (!box.isConnected) return;
+  welcomeData = w;
+  if (w?.needsOnboarding) { me = w.user || me; box.remove(); renderIntroduction(); return; }
+  if (w?.greeting) greeting.textContent = w.greeting;
+  cards.removeAttribute('aria-busy');
+  cards.replaceChildren(...(w?.cards || []).map(welcomeCard));
+  if (!w?.cards?.length) cards.remove();
+
+  const convs = (h?.conversations || []).slice(0, 3);
+  if (convs.length) {
+    recent.append(
+      el('div', { class: 'bc-recent-head' }, [el('span', { text: 'Pick up where you left off' }), el('button', { type: 'button', class: 'bc-link-btn', text: 'All history', onclick: showHistory })]),
+      ...convs.map((c) => el('button', { type: 'button', class: 'bc-recent-item', onclick: () => openConversation(c.conversationId) }, [
+        el('span', { text: c.title }), el('small', { text: dayLabel(c.lastAt) }),
+      ])),
+    );
+  }
+}
+
+function welcomeCard(c) {
+  const card = el('div', { class: `bc-card bc-card--${c.source}` });
+  const go = el('button', {
+    type: 'button', class: 'bc-card-main',
+    onclick: () => {
+      track(c.promoId ? 'promo_click' : 'welcome_card_click', { ref: c.promoId ?? c.id, data: { source: c.source } });
+      ask(c.prompt);
+    },
+  }, [el('span', { class: 'bc-card-lead', text: c.lead }), el('span', { class: 'bc-card-label', text: c.label })]);
+  card.append(go);
+  if (c.promoId) {
+    card.append(el('button', {
+      type: 'button', class: 'bc-card-x', title: 'Not interested', 'aria-label': `Dismiss: ${c.label}`, svg: ICON.close,
+      onclick: () => { track('promo_dismiss', { ref: c.promoId }); card.remove(); welcomeData = null; },
+    }));
+  }
+  return card;
+}
+
+// ---------------------------------------------------------------- history
+
+function dayLabel(iso) {
+  const d = new Date(iso);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const that = new Date(d); that.setHours(0, 0, 0, 0);
+  const days = Math.round((today - that) / 86_400_000);
+  if (days === 0) return `Today, ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return d.toLocaleDateString([], { weekday: 'long' });
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+async function showHistory() {
+  view = 'history';
+  historyBtn.classList.add('bc-on');
+  track('history_open');
+  thread.replaceChildren(el('div', { class: 'bc-history' }, [
+    el('div', { class: 'bc-history-head' }, [
+      el('button', { type: 'button', class: 'bc-icon-btn', 'aria-label': 'Back to the conversation', svg: ICON.back, onclick: showChat }),
+      el('h3', { text: 'Your questions' }),
+    ]),
+    el('p', { class: 'bc-muted', text: 'Loading…' }),
+  ]));
+  const h = await api('/api/history');
+  if (view !== 'history') return;
+  const list = thread.querySelector('.bc-history');
+  list.lastChild.remove();
+  const convs = h?.conversations || [];
+  if (!convs.length) { list.append(el('p', { class: 'bc-muted', text: "Nothing yet. Questions you ask show up here, so you can come back to an answer." })); return; }
+
+  // Group by day.
+  let group = null, label = null;
+  for (const c of convs) {
+    const l = dayLabel(c.lastAt).replace(/^Today.*/, 'Today');
+    if (l !== label) { label = l; group = el('ul', { class: 'bc-history-list' }); list.append(el('h4', { text: l }), group); }
+    group.append(el('li', {}, [el('button', {
+      type: 'button', class: 'bc-history-item', onclick: () => openConversation(c.conversationId),
+    }, [
+      el('span', { text: c.title }),
+      el('small', { text: `${c.turns} question${c.turns > 1 ? 's' : ''}` }),
+    ])]));
+  }
+}
+
+async function openConversation(conversationId) {
+  const r = await api(`/api/history/${encodeURIComponent(conversationId)}`);
+  if (!r?.turns?.length) return;
+  ctl?.abort();
+  state.conversationId = conversationId;
+  state.turns = r.turns.flatMap((t) => [
+    { role: 'user', content: t.question },
+    { role: 'assistant', content: t.answer || '', sources: t.sources || [], turnId: t.id, feedback: t.feedback, suggestions: t.suggestions, error: t.error ? { message: 'This answer didn\'t finish.' } : null },
+  ]);
+  save();
+  showChat();
+}
+
+// ---------------------------------------------------------------- turns
 
 function userTurn(text) {
   return el('div', { class: 'bc-turn bc-turn--user' }, [el('div', { class: 'bc-bubble', text })]);
 }
 
-/** Build (or rebuild) an assistant turn's DOM from its state. */
-function assistantTurn(t) {
+/** Build (or rebuild) an assistant turn's DOM from its state. `latest` shows quick replies. */
+function assistantTurn(t, latest = true) {
   const node = el('div', { class: 'bc-turn' });
   const answer = el('div', { class: 'bc-answer' });
   const status = el('div', { class: 'bc-status' }, [el('span', { class: 'bc-dots' }, [el('i'), el('i'), el('i')]), el('span', { text: '' })]);
+  const extras = el('div', { class: 'bc-extras' });
   const sources = el('div', { class: 'bc-sources' });
-  node.append(status, answer, sources);
+  node.append(status, answer, extras, sources);
 
   const cite = (n) => {
     const s = t.sources?.[n - 1];
@@ -197,7 +411,7 @@ function assistantTurn(t) {
     return el('a', {
       class: 'bc-cite', href, title: s.title, text: String(n),
       target: external ? '_blank' : null, rel: external ? 'noopener' : null,
-      onclick: (e) => openSource(s, e),
+      onclick: (e) => openSource(s, e, t),
     });
   };
 
@@ -211,6 +425,23 @@ function assistantTurn(t) {
       const l = localize(a.href);
       if (l && !l.external) { a.href = l.href; a.removeAttribute('target'); }
     }
+
+    extras.replaceChildren();
+    if (!t.pending && !t.error && t.content) {
+      // Quick replies (Sophia asked something) or related questions, on the latest answer only.
+      const sug = latest && state.turns[state.turns.length - 1] === t ? t.suggestions : null;
+      if (sug?.items?.length) {
+        extras.append(el('div', { class: `bc-sugs bc-sugs--${sug.kind}` }, [
+          sug.kind === 'followup' ? el('span', { class: 'bc-sugs-label', text: 'Related' }) : null,
+          ...sug.items.map((q) => el('button', {
+            type: 'button', class: 'bc-chip', text: q,
+            onclick: () => { track('suggestion_click', { turnId: t.turnId, data: { kind: sug.kind, text: q } }); ask(q); },
+          })),
+        ]));
+      }
+      extras.append(answerActions(t, latest));
+    }
+
     sources.replaceChildren();
     if (t.error) {
       sources.append(el('div', { class: 'bc-notice bc-notice--error' }, [
@@ -222,11 +453,11 @@ function assistantTurn(t) {
       const cited = new Set([...(t.content || '').matchAll(/\[(\d+(?:\s*,\s*\d+)*)\]/g)].flatMap((m) => m[1].split(',').map((x) => Number(x.trim()))));
       const shown = t.sources.filter((s) => cited.has(s.n));
       const rest = t.sources.filter((s) => !cited.has(s.n));
-      const list = el('div', { class: 'bc-sources' }, (shown.length ? shown : t.sources.slice(0, 4)).map(sourceCard));
+      const list = el('div', { class: 'bc-sources' }, (shown.length ? shown : t.sources.slice(0, 4)).map((s) => sourceCard(s, t)));
       sources.append(list);
       const more = shown.length ? rest : t.sources.slice(4);
       if (more.length) {
-        const extra = el('div', { class: 'bc-sources', hidden: '' }, more.map(sourceCard));
+        const extra = el('div', { class: 'bc-sources', hidden: '' }, more.map((s) => sourceCard(s, t)));
         const btn = el('button', { class: 'bc-sources-toggle', type: 'button', text: `More results (${more.length})`, onclick: () => { extra.hidden = !extra.hidden; btn.textContent = extra.hidden ? `More results (${more.length})` : 'Fewer results'; } });
         sources.append(btn, extra);
       }
@@ -236,12 +467,47 @@ function assistantTurn(t) {
   return { node, paint };
 }
 
-function sourceCard(s) {
+/** Thumbs up/down, shorter / more detail, copy. */
+function answerActions(t, latest) {
+  const row = el('div', { class: 'bc-actions' });
+  const thanks = el('span', { class: 'bc-thanks', role: 'status' });
+  const vote = (value) => async () => {
+    if (!t.turnId) return;
+    t.feedback = t.feedback === value ? null : value;
+    save();
+    up.classList.toggle('bc-on', t.feedback === 1);
+    down.classList.toggle('bc-on', t.feedback === -1);
+    if (t.feedback) {
+      await api('/api/feedback', { body: { turnId: t.turnId, value } });
+      thanks.textContent = value > 0 ? 'Thanks!' : "Thanks. This helps us fix what's missing.";
+    }
+  };
+  const up = el('button', { type: 'button', class: `bc-act${t.feedback === 1 ? ' bc-on' : ''}`, title: 'Helpful', 'aria-label': 'Helpful', svg: ICON.up, onclick: vote(1), disabled: t.turnId ? null : '' });
+  const down = el('button', { type: 'button', class: `bc-act${t.feedback === -1 ? ' bc-on' : ''}`, title: 'Not helpful', 'aria-label': 'Not helpful', svg: ICON.down, onclick: vote(-1), disabled: t.turnId ? null : '' });
+  const copy = el('button', {
+    type: 'button', class: 'bc-act', title: 'Copy answer', 'aria-label': 'Copy answer', svg: ICON.copy,
+    onclick: () => {
+      navigator.clipboard?.writeText(t.content.replace(/\s*\[\d+(?:\s*,\s*\d+)*\]/g, '')).then(() => { thanks.textContent = 'Copied.'; }, () => {});
+      track('copy_answer', { turnId: t.turnId });
+    },
+  });
+  row.append(up, down, copy);
+  if (latest && state.turns[state.turns.length - 1] === t) {
+    row.append(
+      el('button', { type: 'button', class: 'bc-act bc-act--text', text: 'Shorter', onclick: () => ask('Give me the short version.') }),
+      el('button', { type: 'button', class: 'bc-act bc-act--text', text: 'More detail', onclick: () => ask('Tell me more, with the details.') }),
+    );
+  }
+  row.append(thanks);
+  return row;
+}
+
+function sourceCard(s, t) {
   const { href, external } = sourceHref(s);
   const where = [kindLabel(s.kind), s.headingPath?.filter(Boolean).join(' › ') || s.list, s.date].filter(Boolean).join(' · ');
   const card = el('a', {
     class: 'bc-src', href, target: external ? '_blank' : null, rel: external ? 'noopener' : null,
-    onclick: (e) => openSource(s, e),
+    onclick: (e) => openSource(s, e, t),
   }, [
     el('span', { class: 'bc-src-n', text: String(s.n) }),
     kindIcon(s.kind),
@@ -259,19 +525,22 @@ const STAGES = { rewriting: 'Understanding your question…', retrieving: 'Searc
 async function ask(question) {
   if (busy) return;
   if (!state.open) setOpen(true);
+  if (view !== 'chat') { view = 'chat'; historyBtn.classList.remove('bc-on'); }
   if (!state.turns.length) thread.replaceChildren();
+  else renderThread();   // drops the previous answer's quick replies
 
   state.turns.push({ role: 'user', content: question });
   thread.append(userTurn(question));
   const t = { role: 'assistant', content: '', pending: true, status: 'Thinking…', sources: [] };
   state.turns.push(t);
-  const view = assistantTurn(t);
-  thread.append(view.node);
+  const v = assistantTurn(t);
+  thread.append(v.node);
   thread.scrollTop = thread.scrollHeight;
-  await stream(t, view);
+  welcomeData = null;     // the welcome is rebuilt from the new history next time
+  await stream(t, v);
 }
 
-async function stream(t, view) {
+async function stream(t, v) {
   busy = true;
   sendBtn.disabled = false;
   sendBtn.innerHTML = ICON.stop;
@@ -287,7 +556,7 @@ async function stream(t, view) {
   const repaint = () => {
     if (frame) return;
     frame = requestAnimationFrame(() => {
-      frame = 0; view.paint();
+      frame = 0; v.paint();
       const nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
       if (nearBottom) thread.scrollTop = thread.scrollHeight;
     });
@@ -297,6 +566,7 @@ async function stream(t, view) {
     status: (d) => { t.status = STAGES[d.stage] || t.status; repaint(); },
     sources: (s) => { t.sources = s; repaint(); },
     token: (d) => { t.content += d.text; repaint(); },
+    suggestions: (s) => { t.suggestions = s; },
     reset: () => { t.content = ''; repaint(); },
     error: (e) => {
       t.error = e.code === 'UNREACHABLE' ? { message: "Can't reach the assistant server. Is `npm start` running?" }
@@ -304,8 +574,8 @@ async function stream(t, view) {
         : { message: e.message || 'Something went wrong.' };
       t.retry = e.code !== 'REFUSED';
     },
-    done: (d) => { t.meta = { mode: d.mode, model: d.model, latencyMs: d.latencyMs }; },
-  }, ctl.signal);
+    done: (d) => { t.turnId = d.turnId; t.meta = { mode: d.mode, model: d.model, latencyMs: d.latencyMs }; },
+  }, ctl.signal, { userId, conversationId: state.conversationId });
 
   if (ctl.signal.aborted && !t.content) t.error = { message: 'Stopped.' };
   t.pending = false;
@@ -314,7 +584,8 @@ async function stream(t, view) {
   sendBtn.innerHTML = ICON.send;
   sendBtn.setAttribute('aria-label', 'Send');
   sendBtn.disabled = !input.value.trim();
-  view.paint();
+  v.paint();
+  thread.scrollTop = thread.scrollHeight;
   save();
 }
 
@@ -443,13 +714,59 @@ function hookSearch() {
   addEventListener('resize', () => { if (!pop.hidden) place(); });
 }
 
-// ---------------------------------------------------------------- suite bar button
+// ---------------------------------------------------------------- suite bar: Ask Sophia + who is signed in
+
+let userBtn = null;
 
 function mountSuiteButton() {
   const region = document.querySelector('#O365_HeaderRightRegion');
   if (!region) return;
-  region.prepend(el('button', { class: 'bc-suite-btn', type: 'button', svg: `${ICON.spark}<span>Ask Sophia</span>`, onclick: () => setOpen(!state.open) }));
+  userBtn = el('button', { class: 'bc-user-btn', type: 'button', 'aria-haspopup': 'menu', onclick: toggleUserMenu });
+  region.prepend(
+    el('button', { class: 'bc-suite-btn', type: 'button', svg: `${ICON.spark}<span>Ask Sophia</span>`, onclick: () => setOpen(!state.open) }),
+    userBtn,
+  );
+  renderUserButton();
 }
+
+function renderUserButton() {
+  if (!userBtn) return;
+  userBtn.replaceChildren(el('span', { class: 'bc-avatar', text: me?.name ? initials(me.name) : '?' }));
+  userBtn.title = me?.name ? `Signed in as ${me.name} (demo). Click to switch.` : 'New visitor (demo). Click to switch.';
+  userBtn.setAttribute('aria-label', userBtn.title);
+}
+
+let userMenu = null;
+async function toggleUserMenu(e) {
+  e.stopPropagation();
+  if (userMenu) { userMenu.remove(); userMenu = null; return; }
+  const r = await api('/api/demo-users');
+  const roleLabel = (k) => roles.find((x) => x.key === k)?.label || '';
+  const switchTo = (id) => {
+    setUserId(id);
+    // Each person has their own open conversation.
+    location.reload();
+  };
+  userMenu = el('div', { class: 'bc-usermenu', role: 'menu' }, [
+    el('div', { class: 'bc-usermenu-head' }, [
+      el('b', { text: me?.name || 'New visitor' }),
+      el('small', { text: [roleLabel(me?.role), me?.department].filter(Boolean).join(' · ') || 'First visit' }),
+    ]),
+    el('div', { class: 'bc-usermenu-label', text: 'Demo: sign in as' }),
+    ...(r?.users || []).map((u) => el('button', {
+      type: 'button', role: 'menuitem', class: u.id === userId ? 'bc-on' : null, onclick: () => switchTo(u.id),
+    }, [el('span', { class: 'bc-avatar bc-avatar--sm', text: initials(u.name) }), el('span', {}, [u.name, el('small', { text: roleLabel(u.role) })])])),
+    el('button', { type: 'button', role: 'menuitem', onclick: () => switchTo(`guest-${Math.random().toString(36).slice(2, 10)}`) }, [
+      el('span', { class: 'bc-avatar bc-avatar--sm', text: '+' }), el('span', {}, ['Someone new', el('small', { text: 'See the first-visit introduction' })]),
+    ]),
+    me?.isAdmin ? el('a', { class: 'bc-usermenu-link', href: '/admin', target: '_blank', rel: 'noopener', role: 'menuitem', text: 'Open the insights dashboard ↗' }) : null,
+  ]);
+  const rect = userBtn.getBoundingClientRect();
+  userMenu.style.top = `${rect.bottom + 6}px`;
+  userMenu.style.right = `${Math.max(8, innerWidth - rect.right)}px`;
+  document.body.append(userMenu);
+}
+document.addEventListener('mousedown', (e) => { if (userMenu && !userMenu.contains(e.target) && !userBtn?.contains(e.target)) { userMenu.remove(); userMenu = null; } });
 
 // ---------------------------------------------------------------- site navigation menus
 
@@ -638,6 +955,11 @@ function mountImageFallbacks() {
 // ---------------------------------------------------------------- boot
 
 async function boot() {
+  // Who is signed in, before anything personal renders.
+  const r = await api('/api/me');
+  roles = r?.roles || [];
+  me = r?.user || null;
+
   mountPane();
   mountSuiteButton();
   hookSearch();
@@ -649,6 +971,9 @@ async function boot() {
   // Let the page settle (fonts, images) before measuring for the highlight.
   setTimeout(highlightFromHash, 400);
   addEventListener('hashchange', highlightFromHash);
+
+  // Build the personal welcome in the background, so it's ready when the pane opens.
+  if (me?.role && !state.turns.length && !state.open) api('/api/welcome').then((w) => { if (w && !welcomeData) welcomeData = w; });
 
   const h = await health(API);
   footMode.textContent = !h ? 'Assistant server offline'
