@@ -7,7 +7,43 @@
 // Offline (server unreachable): falls back to keyword search over the corpus
 // bundled at build time (data/corpus.json) and shows matches verbatim.
 
-import { DEFAULT_API, health, streamChat } from './lib/chat-api.js';
+import { DEFAULT_API, health, streamChat, apiJson } from './lib/chat-api.js';
+
+// Anonymous id for this browser, so answers are saved and feedback counts.
+// (Real sign-in comes from SharePoint later.)
+const USER_ID = (() => {
+  try {
+    let id = localStorage.getItem('sophia-ext-user');
+    if (!id) { id = `ext-${Math.random().toString(36).slice(2, 10)}`; localStorage.setItem('sophia-ext-user', id); }
+    return id;
+  } catch { return null; }
+})();
+const CONVERSATION_ID = `c-${Date.now().toString(36)}`;
+
+const THUMB_UP = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M7 11v9H4v-9zM7 11l4-8c1.7 0 2.7 1.2 2.3 2.8L12.6 9H19a2 2 0 0 1 2 2.3l-1.2 7A2 2 0 0 1 17.8 20H7"/></svg>';
+const THUMB_DOWN = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M7 13V4H4v9zM7 13l4 8c1.7 0 2.7-1.2 2.3-2.8L12.6 15H19a2 2 0 0 0 2-2.3l-1.2-7A2 2 0 0 0 17.8 4H7"/></svg>';
+
+/** Helpful / Not helpful under an answer. */
+function feedbackRow(getTurnId) {
+  const thanks = el('span', { class: 'feedback__thanks', role: 'status' });
+  let current = 0;
+  const mk = (value, label, svg) => {
+    const b = el('button', { class: 'feedback__btn', type: 'button', title: label, 'aria-label': label, 'aria-pressed': 'false' });
+    b.innerHTML = svg;                                       // static icon markup only
+    b.addEventListener('click', async () => {
+      current = current === value ? 0 : value;
+      for (const x of row.querySelectorAll('.feedback__btn')) x.setAttribute('aria-pressed', 'false');
+      if (!current) { thanks.textContent = ''; return; }
+      b.setAttribute('aria-pressed', 'true');
+      thanks.textContent = value > 0 ? 'Thanks!' : "Thanks. This helps us fix what's missing.";
+      const turnId = getTurnId();
+      if (turnId) await apiJson(API, '/api/feedback', { userId: USER_ID, body: { turnId, value } });
+    });
+    return b;
+  };
+  const row = el('div', { class: 'feedback' }, [mk(1, 'Helpful', THUMB_UP), mk(-1, 'Not helpful', THUMB_DOWN), thanks]);
+  return row;
+}
 import { renderAnswer } from './lib/render.js';
 import { buildIndex, search } from './search.js';
 
@@ -247,6 +283,7 @@ async function onlineAnswer() {
   let text = '';
   let sources = [];
   let failed = null;
+  let turnId = null;
   controller = new AbortController();
   setBusy(true);
 
@@ -263,8 +300,8 @@ async function onlineAnswer() {
     token: (d) => { status.remove(); text += d.text; paint(); },
     reset: () => { text = ''; paint(); },
     error: (d) => { failed = d; },
-    done: () => {},
-  }, controller.signal);
+    done: (d) => { turnId = d.turnId ?? null; },
+  }, controller.signal, { userId: USER_ID, conversationId: CONVERSATION_ID });
 
   const aborted = controller.signal.aborted;
   controller = null;
@@ -291,6 +328,7 @@ async function onlineAnswer() {
   if (aborted) text += ' …';
   paint();
   history.push({ role: 'assistant', content: text });
+  turn.append(feedbackRow(() => turnId));
   if (sources.length) turn.append(sourcesBlock(sources, text));
   scrollDown();
 }
