@@ -936,6 +936,24 @@ function toast(msg) {
   setTimeout(() => t.remove(), 2200);
 }
 
+// ---------------------------------------------------------------- full-width section above a vertical section
+// On a page with a vertical section (the home page's help-desk column),
+// SharePoint pins the full-width top section with position:absolute and its
+// own script pushes the columns down by its height. That script doesn't run
+// in a snapshot, so the columns slid up under the banner. Push them down here.
+
+function mountFullWidthTop() {
+  const fit = () => {
+    for (const s of document.querySelectorAll('.canvasSectionTopFullWidth.withVerticalSection')) {
+      const canvas = s.closest('[data-automation-id="Canvas"]');
+      if (canvas) canvas.style.paddingTop = `${s.offsetHeight}px`;
+    }
+  };
+  fit();
+  addEventListener('load', fit);
+  addEventListener('resize', fit);
+}
+
 // ---------------------------------------------------------------- images
 // A few images (news thumbnails, document previews) live on Microsoft CDNs
 // that don't allow cross-origin capture, so the replica can only show them
@@ -966,6 +984,7 @@ async function boot() {
   mountNavMenus();
   mountCollapsibles();
   mountImageFallbacks();
+  mountFullWidthTop();
   renderThread();
   if (state.open) setOpen(true);
   // Let the page settle (fonts, images) before measuring for the highlight.
