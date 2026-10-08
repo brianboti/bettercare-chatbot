@@ -525,6 +525,7 @@ function promoForm() {
   const link = el('input', { type: 'url', id: 'promoUrl', name: 'url', value: p.url || '', maxlength: '1000', placeholder: 'https://uthealthsa.sharepoint.com/sites/BetterCare/…', inputmode: 'url' });
   const prompt = el('textarea', { id: 'promoPrompt', name: 'prompt', rows: '2', maxlength: '300', required: true });
   prompt.value = p.prompt;
+  prompt.setAttribute('aria-describedby', 'promoPromptHelp');
   const starts = el('input', { type: 'date', id: 'promoStarts', name: 'starts', value: p.starts || '' });
   const ends = el('input', { type: 'date', id: 'promoEnds', name: 'ends', value: p.ends || '' });
   const priority = el('input', { type: 'number', id: 'promoPriority', name: 'priority', value: String(p.priority ?? 0), min: '0', max: '10', step: '1' });
@@ -535,7 +536,9 @@ function promoForm() {
     el('h3', { text: editing ? 'Edit pushed content' : 'Push new content' }),
     f('Title', title),
     f('Short description', blurb, 'Optional. Helps Sophia phrase the suggestion.'),
-    f('What Sophia is asked when someone clicks it', prompt, 'Write it as the person would ask, e.g. “What changes for nurses in vMay2026?”'),
+    f(withHelp('What Sophia is asked when someone clicks it', 'promoPromptHelp',
+      'Your pushed item shows as a card on Sophia’s welcome screen. When someone clicks the card, this question is sent to Sophia as if they had typed it, and she answers it from the BetterCare site, with sources. Make it a question the site can answer.'),
+    prompt, 'Write it as the person would ask, e.g. “What changes for nurses in vMay2026?”'),
     f('Link (optional)', link, 'The page, document or sign-up form you’re pushing. Shown as “Open” on the card and at the top of Sophia’s answer.'),
     el('fieldset', {}, [el('legend', { text: 'Audience (none checked = everyone)' }), el('div', { class: 'checks' }, roleBoxes)]),
     el('div', { class: 'row' }, [f('Starts', starts), f('Ends', ends), f('Priority (0–10)', priority)]),
@@ -577,6 +580,15 @@ function promoForm() {
     savePromo(body, editing ? `Saved “${body.title}”.` : `Pushed “${body.title}”.`, msg);
   });
   return form;
+}
+
+/** A label with a small (?) that explains the field on hover or keyboard focus. */
+function withHelp(text, id, help) {
+  return el('span', { class: 'f-label' }, [
+    text,
+    el('span', { class: 'qhelp', tabindex: '0', role: 'button', 'aria-label': `What “${text}” means`, 'aria-describedby': id, text: '?' }),
+    el('span', { class: 'qtip', id, role: 'tooltip', text: help }),
+  ]);
 }
 
 async function savePromo(p, okText, msgEl) {
