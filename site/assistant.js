@@ -318,10 +318,11 @@ function welcomeCard(c) {
     type: 'button', class: 'bc-card-main',
     onclick: () => {
       track(c.promoId ? 'promo_click' : 'welcome_card_click', { ref: c.promoId ?? c.id, data: { source: c.source } });
-      ask(c.prompt);
+      ask(c.prompt, c.url ? { link: { title: c.label, url: c.url, promoId: c.promoId } } : {});
     },
   }, [el('span', { class: 'bc-card-lead', text: c.lead }), el('span', { class: 'bc-card-label', text: c.label })]);
   card.append(go);
+  if (c.url) card.append(featuredLink({ title: c.label, url: c.url, promoId: c.promoId }, 'bc-card-open', 'Open ↗'));
   if (c.promoId) {
     card.append(el('button', {
       type: 'button', class: 'bc-card-x', title: 'Not interested', 'aria-label': `Dismiss: ${c.label}`, svg: ICON.close,
@@ -329,6 +330,16 @@ function welcomeCard(c) {
     }));
   }
   return card;
+}
+
+/** A link Clinical IT attached to pushed content: on its welcome card, and above the answer it leads to. */
+function featuredLink(link, cls, text) {
+  const l = localize(link.url) || { href: link.url, external: true };
+  return el('a', {
+    class: cls, href: l.href, target: l.external ? '_blank' : null, rel: l.external ? 'noopener' : null,
+    title: link.url, text,
+    onclick: () => track('promo_link_click', { ref: link.promoId, data: { url: link.url } }),
+  });
 }
 
 // ---------------------------------------------------------------- history
@@ -383,7 +394,7 @@ async function openConversation(conversationId) {
   state.conversationId = conversationId;
   state.turns = r.turns.flatMap((t) => [
     { role: 'user', content: t.question },
-    { role: 'assistant', content: t.answer || '', sources: t.sources || [], turnId: t.id, feedback: t.feedback, suggestions: t.suggestions, error: t.error ? { message: 'This answer didn\'t finish.' } : null },
+    { role: 'assistant', content: t.answer || '', sources: t.sources || [], turnId: t.id, feedback: t.feedback, feedbackNote: t.feedbackNote, suggestions: t.suggestions, error: t.error ? { message: 'This answer didn\'t finish.' } : null },
   ]);
   save();
   showChat();
@@ -449,38 +460,51 @@ function assistantTurn(t, latest = true) {
         t.retry ? el('button', { type: 'button', text: 'Retry', onclick: () => retry(t) }) : null,
       ]));
     }
+    if (!t.pending && t.link) {
+      const a = featuredLink(t.link, 'bc-featured', '');
+      a.append(el('span', { class: 'bc-featured-lead', text: 'Featured by Clinical IT' }), el('b', { text: t.link.title }), el('small', { text: `${t.link.url.replace(/^https:\/\//, '').slice(0, 70)} ↗` }));
+      sources.append(a);
+    }
     if (!t.pending && t.sources?.length) {
       const cited = new Set([...(t.content || '').matchAll(/\[(\d+(?:\s*,\s*\d+)*)\]/g)].flatMap((m) => m[1].split(',').map((x) => Number(x.trim()))));
-      const shown = t.sources.filter((s) => cited.has(s.n));
-      const rest = t.sources.filter((s) => !cited.has(s.n));
-      const list = el('div', { class: 'bc-sources' }, (shown.length ? shown : t.sources.slice(0, 4)).map((s) => sourceCard(s, t)));
-      sources.append(list);
-      const more = shown.length ? rest : t.sources.slice(4);
-      if (more.length) {
-        const extra = el('div', { class: 'bc-sources', hidden: '' }, more.map((s) => sourceCard(s, t)));
-        const btn = el('button', { class: 'bc-sources-toggle', type: 'button', text: `More results (${more.length})`, onclick: () => { extra.hidden = !extra.hidden; btn.textContent = extra.hidden ? `More results (${more.length})` : 'Fewer results'; } });
+      // Sources arrive newest first; much older ones go under "Older results".
+      const current = t.sources.filter((s) => !s.older);
+      const older = t.sources.filter((s) => s.older);
+      const shown = current.filter((s) => cited.has(s.n));
+      const top = shown.length ? shown : current.slice(0, 4);
+      if (top.length) sources.append(el('div', { class: 'bc-sources' }, top.map((s) => sourceCard(s, t))));
+      const toggle = (label, list) => {
+        const extra = el('div', { class: 'bc-sources', hidden: '' }, list.map((s) => sourceCard(s, t)));
+        const btn = el('button', {
+          class: 'bc-sources-toggle', type: 'button', 'aria-expanded': 'false', text: `${label} (${list.length})`,
+          onclick: () => { extra.hidden = !extra.hidden; btn.setAttribute('aria-expanded', String(!extra.hidden)); btn.textContent = extra.hidden ? `${label} (${list.length})` : `Hide ${label.toLowerCase()}`; },
+        });
         sources.append(btn, extra);
-      }
+      };
+      const more = current.filter((s) => !top.includes(s));
+      if (more.length) toggle('More results', more);
+      if (older.length) toggle('Older results', older);
     }
   };
   paint();
   return { node, paint };
 }
 
-/** Thumbs up/down, shorter / more detail, copy. */
+/** Thumbs up/down (with an optional comment), shorter / more detail, copy. */
 function answerActions(t, latest) {
   const row = el('div', { class: 'bc-actions' });
   const thanks = el('span', { class: 'bc-thanks', role: 'status' });
+  const form = feedbackForm(t, (msg) => { thanks.textContent = msg; });
   const vote = (value) => async () => {
     if (!t.turnId) return;
     t.feedback = t.feedback === value ? null : value;
+    t.feedbackNote = null;
     save();
     up.classList.toggle('bc-on', t.feedback === 1);
     down.classList.toggle('bc-on', t.feedback === -1);
-    if (t.feedback) {
-      await api('/api/feedback', { body: { turnId: t.turnId, value } });
-      thanks.textContent = value > 0 ? 'Thanks!' : "Thanks. This helps us fix what's missing.";
-    }
+    thanks.textContent = '';
+    form.toggle(t.feedback);
+    await api('/api/feedback', { body: { turnId: t.turnId, value: t.feedback || 0 } });
   };
   const up = el('button', { type: 'button', class: `bc-act${t.feedback === 1 ? ' bc-on' : ''}`, title: 'Helpful', 'aria-label': 'Helpful', svg: ICON.up, onclick: vote(1), disabled: t.turnId ? null : '' });
   const down = el('button', { type: 'button', class: `bc-act${t.feedback === -1 ? ' bc-on' : ''}`, title: 'Not helpful', 'aria-label': 'Not helpful', svg: ICON.down, onclick: vote(-1), disabled: t.turnId ? null : '' });
@@ -499,12 +523,70 @@ function answerActions(t, latest) {
     );
   }
   row.append(thanks);
-  return row;
+  return el('div', {}, [row, form.node]);
 }
+
+/** "Tell us more" box that opens under the thumbs. Saves the comment with the rating. */
+function feedbackForm(t, done) {
+  const box = el('textarea', { class: 'bc-fb-text', rows: '3', maxlength: '500', 'aria-label': 'Your feedback' });
+  const label = el('label', { class: 'bc-fb-label' });
+  const err = el('span', { class: 'bc-fb-err', role: 'alert' });
+  const send = el('button', { type: 'submit', class: 'bc-fb-send', text: 'Send' });
+  const close = () => { node.hidden = true; };
+  const node = el('form', {
+    class: 'bc-fb', hidden: '',
+    onsubmit: async (e) => {
+      e.preventDefault();
+      const note = box.value.trim();
+      if (!note) { close(); done(t.feedback > 0 ? 'Thanks!' : "Thanks. This helps us fix what's missing."); return; }
+      send.disabled = true;
+      err.textContent = '';
+      const ok = await api('/api/feedback', { body: { turnId: t.turnId, value: t.feedback, note } });
+      send.disabled = false;
+      if (!ok) { err.textContent = "Couldn't send. Try again."; return; }
+      t.feedbackNote = note;
+      save();
+      close();
+      done('Thanks, your feedback was sent.');
+    },
+    onkeydown: (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); close(); }
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) node.requestSubmit();
+    },
+  }, [
+    label, box,
+    el('div', { class: 'bc-fb-foot' }, [
+      err,
+      el('small', { text: 'Read by the Clinical IT team.' }),
+      el('button', { type: 'button', class: 'bc-fb-skip', text: 'Skip', onclick: () => { close(); done(t.feedback > 0 ? 'Thanks!' : "Thanks. This helps us fix what's missing."); } }),
+      send,
+    ]),
+  ]);
+  const id = `bc-fb-${t.turnId}`;
+  box.id = id;
+  label.setAttribute('for', id);
+  return {
+    node,
+    toggle(value) {
+      if (!value) { close(); return; }
+      label.textContent = value > 0 ? 'What was helpful? (optional)' : 'What was wrong or missing? (optional)';
+      box.placeholder = value > 0 ? 'e.g. It linked straight to the tip sheet I needed' : 'e.g. It pointed to the old version of the policy';
+      box.value = '';
+      err.textContent = '';
+      node.hidden = false;
+      box.focus();
+    },
+  };
+}
+
+const fmtSourceDate = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(d)
+  ? new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+  : d);
 
 function sourceCard(s, t) {
   const { href, external } = sourceHref(s);
-  const where = [kindLabel(s.kind), s.headingPath?.filter(Boolean).join(' › ') || s.list, s.date].filter(Boolean).join(' · ');
+  const when = s.date ? fmtSourceDate(s.date) : s.updated ? `Updated ${fmtSourceDate(s.updated)}` : null;
+  const where = [kindLabel(s.kind), s.headingPath?.filter(Boolean).join(' › ') || s.list, when].filter(Boolean).join(' · ');
   const card = el('a', {
     class: 'bc-src', href, target: external ? '_blank' : null, rel: external ? 'noopener' : null,
     onclick: (e) => openSource(s, e, t),
@@ -522,7 +604,7 @@ function sourceCard(s, t) {
 
 const STAGES = { rewriting: 'Understanding your question…', retrieving: 'Searching BetterCare…', generating: 'Writing an answer…' };
 
-async function ask(question) {
+async function ask(question, { link = null } = {}) {
   if (busy) return;
   if (!state.open) setOpen(true);
   if (view !== 'chat') { view = 'chat'; historyBtn.classList.remove('bc-on'); }
@@ -531,7 +613,7 @@ async function ask(question) {
 
   state.turns.push({ role: 'user', content: question });
   thread.append(userTurn(question));
-  const t = { role: 'assistant', content: '', pending: true, status: 'Thinking…', sources: [] };
+  const t = { role: 'assistant', content: '', pending: true, status: 'Thinking…', sources: [], link };
   state.turns.push(t);
   const v = assistantTurn(t);
   thread.append(v.node);

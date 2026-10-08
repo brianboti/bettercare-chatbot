@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS promotions (
   ends TEXT,
   priority INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 1,
+  url TEXT,
   created_at TEXT NOT NULL,
   created_by TEXT,
   demo INTEGER NOT NULL DEFAULT 0
@@ -85,6 +86,9 @@ export function openStore(file) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   db.exec(SCHEMA);
+  // Columns added after a database was first created.
+  const hasColumn = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
+  if (!hasColumn('promotions', 'url')) db.exec('ALTER TABLE promotions ADD COLUMN url TEXT');
 
   const q = (sql) => db.prepare(sql);
 
@@ -212,19 +216,19 @@ export function openStore(file) {
   // -------------------------------------------------------------- promotions
 
   const promoRow = (r) => r && ({
-    id: r.id, title: r.title, blurb: r.blurb, prompt: r.prompt, roles: j(r.roles, []),
+    id: r.id, title: r.title, blurb: r.blurb, prompt: r.prompt, url: r.url || null, roles: j(r.roles, []),
     starts: r.starts, ends: r.ends, priority: r.priority, active: !!r.active, createdAt: r.created_at, createdBy: r.created_by,
   });
 
   const listPromotions = () => q('SELECT * FROM promotions ORDER BY active DESC, priority DESC, id DESC').all().map(promoRow);
 
   function savePromotion(p, by) {
-    const vals = [p.title, p.blurb ?? null, p.prompt, JSON.stringify(p.roles || []), p.starts || null, p.ends || null, p.priority ?? 0, p.active === false ? 0 : 1];
+    const vals = [p.title, p.blurb ?? null, p.prompt, JSON.stringify(p.roles || []), p.starts || null, p.ends || null, p.priority ?? 0, p.active === false ? 0 : 1, p.url || null];
     if (p.id) {
-      q('UPDATE promotions SET title=?, blurb=?, prompt=?, roles=?, starts=?, ends=?, priority=?, active=? WHERE id=?').run(...vals, p.id);
+      q('UPDATE promotions SET title=?, blurb=?, prompt=?, roles=?, starts=?, ends=?, priority=?, active=?, url=? WHERE id=?').run(...vals, p.id);
       return promoRow(q('SELECT * FROM promotions WHERE id = ?').get(p.id));
     }
-    const r = q('INSERT INTO promotions (title, blurb, prompt, roles, starts, ends, priority, active, created_at, created_by, demo) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+    const r = q('INSERT INTO promotions (title, blurb, prompt, roles, starts, ends, priority, active, url, created_at, created_by, demo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(...vals, now(), by ?? null, p.demo ? 1 : 0);
     return promoRow(q('SELECT * FROM promotions WHERE id = ?').get(r.lastInsertRowid));
   }
@@ -295,6 +299,17 @@ export function openStore(file) {
         note: t.feedback_note,
       }));
 
+    // Every rating, with what the person wrote, newest first.
+    const feedback = turns
+      .filter((t) => t.feedback)
+      .reverse()
+      .slice(0, 300)
+      .map((t) => ({
+        id: t.id, at: t.at, role: t.role, question: t.question, topics: j(t.topics, []),
+        answer: t.answer ? t.answer.replace(/\s*\[\d+(?:\s*,\s*\d+)*\]/g, '').slice(0, 1200) : null,
+        value: t.feedback, note: t.feedback_note,
+      }));
+
     // Where people end up: sources opened from answers.
     const opened = new Map();
     for (const e of events.filter((x) => x.type === 'citation_click')) {
@@ -316,21 +331,24 @@ export function openStore(file) {
 
     const promos = listPromotions().map((p) => {
       const ev = events.filter((e) => Number(e.ref) === p.id);
-      return { ...p, shown: ev.filter((e) => e.type === 'promo_shown').length, clicked: ev.filter((e) => e.type === 'promo_click').length };
+      return { ...p, shown: ev.filter((e) => e.type === 'promo_shown').length, clicked: ev.filter((e) => e.type === 'promo_click').length, linkOpens: ev.filter((e) => e.type === 'promo_link_click').length };
     });
 
     return {
       days, role,
       demoData: !!q('SELECT 1 FROM turns WHERE demo = 1 LIMIT 1').get(),
-      totals: { questions: turns.length, users: users.size, up, down, lowConfidence: low, errors, rephrased: rephrased.size },
+      totals: { questions: turns.length, users: users.size, up, down, comments: turns.filter((t) => t.feedback && t.feedback_note).length, lowConfidence: low, errors, rephrased: rephrased.size },
       byDay: [...byDay].map(([day, count]) => ({ day, count })),
       byRole: [...roleCount].map(([r, count]) => ({ role: r, count })).sort((a, b) => b.count - a.count),
       topics: [...topicCount].map(([topic, count]) => ({ topic, count })).sort((a, b) => b.count - a.count),
       topicRole: [...topicRole].map(([k, count]) => { const [topic, r] = k.split('\u0000'); return { topic, role: r, count }; }),
-      topQuestions: [...qs.values()].sort((a, b) => b.count - a.count).slice(0, 15).map((g) => ({ ...g, roles: [...g.roles] })),
+      // share = this question's part of every question asked in the period.
+      topQuestions: [...qs.values()].sort((a, b) => b.count - a.count).slice(0, 15)
+        .map((g) => ({ ...g, roles: [...g.roles], share: turns.length ? g.count / turns.length : 0 })),
       trouble,
+      feedback,
       opened: [...opened.values()].sort((a, b) => b.count - a.count).slice(0, 12),
-      recent: turns.slice(-40).reverse().map((t) => ({ id: t.id, at: t.at, role: t.role, question: t.question, topics: j(t.topics, []), feedback: t.feedback, lowConfidence: !!t.low_confidence })),
+      recent: turns.slice(-40).reverse().map((t) => ({ id: t.id, at: t.at, role: t.role, question: t.question, topics: j(t.topics, []), feedback: t.feedback, note: t.feedback_note, lowConfidence: !!t.low_confidence })),
       promotions: promos,
     };
   }

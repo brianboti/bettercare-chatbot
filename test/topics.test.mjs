@@ -1,3 +1,4 @@
+// Covers: Topic tagging for insights and personalization, and building the question sent to the model.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { tagTopics, cleanTopics } from '../server/topics.mjs';

@@ -72,7 +72,7 @@ export function welcomeCandidates(store, user, { chunks, facts }) {
   // 1. What the org wants this role to see. Not re-shown once clicked or dismissed.
   const acted = store.promotionsActedOn(user.id);
   for (const p of store.promotionsFor(role).filter((x) => !acted.has(x.id)).slice(0, 2)) {
-    out.push({ id: `org:${p.id}`, source: 'org', promoId: p.id, title: p.title, detail: p.blurb || '', prompt: p.prompt });
+    out.push({ id: `org:${p.id}`, source: 'org', promoId: p.id, title: p.title, detail: p.blurb || '', prompt: p.prompt, url: p.url || null });
   }
 
   // 2. Build on what they asked before.
@@ -166,7 +166,7 @@ const cache = new Map();   // userId -> { key, value }
  * Cached per user until they ask something new or the pushed content changes.
  */
 export async function welcome(store, user, deps) {
-  const key = [todayIso(), store.recentTurns(user.id, 1)[0]?.id || 0, JSON.stringify(store.promotionsFor(user.role).map((p) => p.id)), user.role, user.name].join('|');
+  const key = [todayIso(), store.recentTurns(user.id, 1)[0]?.id || 0, JSON.stringify(store.promotionsFor(user.role).map((p) => [p.id, p.url])), user.role, user.name].join('|');
   const hit = cache.get(user.id);
   if (hit?.key === key) return hit.value;
 
@@ -184,7 +184,7 @@ export async function welcome(store, user, deps) {
     .slice(0, 4)
     .map((c) => {
       const cand = byId.get(c.id);
-      return { id: c.id, source: cand.source, lead: LEAD[cand.source], label: c.label.slice(0, 90), prompt: (c.prompt || cand.prompt).slice(0, 300), promoId: cand.promoId };
+      return { id: c.id, source: cand.source, lead: LEAD[cand.source], label: c.label.slice(0, 90), prompt: (c.prompt || cand.prompt).slice(0, 300), promoId: cand.promoId, url: cand.url || undefined };
     });
   const value = { greeting: result.greeting.slice(0, 140), cards };
   cache.set(user.id, { key, value });

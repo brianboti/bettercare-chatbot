@@ -9,9 +9,10 @@
 //   GET  /api/me         the signed-in user (X-Sophia-User header)   POST: save profile
 //   GET  /api/welcome    personalized greeting + suggestion cards
 //   GET  /api/history    past conversations          /api/history/<conversationId>: its turns
-//   POST /api/feedback   { turnId, value: 1|-1, note? }
+//   POST /api/feedback   { turnId, value: 1|-1|0, note? }   (0 clears it)
 //   POST /api/events     { type, turnId?, ref?, data? }   usage events for insights
 //   GET  /api/admin/insights, GET|POST /api/admin/promotions   (admins only)
+//   GET  /api/admin/tests, POST /api/admin/tests/run { suite }  (admins only)
 //   GET  /admin          the insights dashboard
 //   GET  /lib/*          shared client modules (extension/lib)
 //   GET  /*              the local site replica (site/)
@@ -28,6 +29,7 @@ import { PROMPT_VERSION } from './prompt.mjs';
 import { openStore } from './store.mjs';
 import { welcome } from './personalize.mjs';
 import { ROLES } from './topics.mjs';
+import { testStatus, startRun } from './testrunner.mjs';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -121,7 +123,7 @@ function currentUser(req) {
   return { id, user };
 }
 
-const EVENT_TYPES = new Set(['citation_click', 'suggestion_click', 'promo_click', 'promo_dismiss', 'history_open', 'copy_answer', 'welcome_card_click']);
+const EVENT_TYPES = new Set(['citation_click', 'suggestion_click', 'promo_click', 'promo_dismiss', 'promo_link_click', 'history_open', 'copy_answer', 'welcome_card_click']);
 
 function requireAdmin(user) {
   if (!user?.isAdmin) throw new ChatError('FORBIDDEN', 'Admins only.', 403);
@@ -205,9 +207,10 @@ const server = createServer(async (req, res) => {
     if (url.pathname === '/api/feedback' && req.method === 'POST') {
       const { user } = currentUser(req);
       const b = await readBody(req, 4000);
-      const value = b.value > 0 ? 1 : b.value < 0 ? -1 : null;
-      if (!user || !Number.isInteger(b.turnId) || value == null) throw new ChatError('BAD_REQUEST', 'turnId and value required');
-      const ok = store.setFeedback(b.turnId, user.id, value, typeof b.note === 'string' ? b.note.slice(0, 500) : null);
+      const value = b.value > 0 ? 1 : b.value < 0 ? -1 : b.value === 0 ? null : undefined;
+      if (!user || !Number.isInteger(b.turnId) || value === undefined) throw new ChatError('BAD_REQUEST', 'turnId and value required');
+      const note = value != null && typeof b.note === 'string' ? b.note.trim().slice(0, 500) || null : null;
+      const ok = store.setFeedback(b.turnId, user.id, value, note);
       return json(res, ok ? 200 : 404, { ok }, h);
     }
 
@@ -226,6 +229,19 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { ...store.insights({ days, role }), roles: Object.entries(ROLES).map(([key, r]) => ({ key, label: r.label })) }, h);
     }
 
+    if (url.pathname === '/api/admin/tests') {
+      requireAdmin(currentUser(req).user);
+      return json(res, 200, { suites: testStatus() }, h);
+    }
+
+    if (url.pathname === '/api/admin/tests/run' && req.method === 'POST') {
+      requireAdmin(currentUser(req).user);
+      const b = await readBody(req, 1000);
+      const r = startRun(String(b.suite || ''));
+      if (r.error) throw new ChatError('BAD_REQUEST', r.error);
+      return json(res, 202, { run: r.run }, h);
+    }
+
     if (url.pathname === '/api/admin/promotions') {
       const { user } = currentUser(req);
       requireAdmin(user);
@@ -234,10 +250,12 @@ const server = createServer(async (req, res) => {
         if (!b.title?.trim() || !b.prompt?.trim()) throw new ChatError('BAD_REQUEST', 'title and prompt required');
         const roles = (Array.isArray(b.roles) ? b.roles : []).filter((r) => ROLES[r]);
         const date = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(d || '') ? d : null);
+        const link = String(b.url || '').trim();
+        if (link && !/^https:\/\/[^\s]+$/i.test(link)) throw new ChatError('BAD_REQUEST', 'The link must start with https://');
         const p = store.savePromotion({
           id: Number.isInteger(b.id) ? b.id : undefined, title: b.title.trim().slice(0, 120), blurb: String(b.blurb || '').slice(0, 400),
           prompt: b.prompt.trim().slice(0, 300), roles, starts: date(b.starts), ends: date(b.ends),
-          priority: Number(b.priority) || 0, active: b.active !== false,
+          priority: Number(b.priority) || 0, active: b.active !== false, url: link ? link.slice(0, 1000) : null,
         }, user.id);
         return json(res, 200, { promotion: p }, h);
       }

@@ -371,3 +371,21 @@ body {
 .feedback__btn[aria-pressed="true"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .feedback__btn[aria-pressed="true"] svg { fill: color-mix(in srgb, var(--accent) 25%, transparent); }
 .feedback__thanks { font-size: 11.5px; color: var(--ink-3); margin-left: 6px; }
+.feedback__form {
+  margin-top: 4px; padding: 10px; display: grid; gap: 6px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+}
+.feedback__form[hidden] { display: none; }
+.feedback__label { font-size: 12px; font-weight: 600; color: var(--ink); }
+.feedback__text {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 56px; padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink);
+  font-family: var(--sans); font-size: 12.5px; line-height: 1.4;
+}
+.feedback__text:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.feedback__foot { display: flex; align-items: center; gap: 6px; }
+.feedback__foot small { margin-right: auto; font-size: 11px; color: var(--ink-3); }
+.feedback__err { font-size: 11.5px; color: var(--danger); }
+.feedback__err:empty { display: none; }
+.btn--quiet { background: none; color: var(--ink-2); border: 1px solid var(--line); }
+.btn:disabled { opacity: .6; cursor: default; }

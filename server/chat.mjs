@@ -12,6 +12,7 @@ import { llmAvailable, rewriteQuery, streamAnswer, Anthropic } from './llm.mjs';
 import { SuggestionSplitter } from './followups.mjs';
 import { tagTopics } from './topics.mjs';
 import { describePerson } from './personalize.mjs';
+import { orderByRecency } from './recency.mjs';
 
 const LOG_DIR = resolve(ROOT, 'data/logs');
 
@@ -40,7 +41,7 @@ export function parseMessages(body) {
 }
 
 /** What the client needs to render a citation. */
-export function sourceView(c, n) {
+export function sourceView(c, n, older = false) {
   return {
     n,
     id: c.id,
@@ -53,6 +54,8 @@ export function sourceView(c, n) {
     localUrl: c.localUrl,
     docUrl: c.docUrl || null,
     date: c.meta?.date || c.meta?.published || null,
+    updated: c.meta?.date || c.meta?.published ? null : c.meta?.modified || null,
+    older: older || undefined,
     // The text usually opens with the title; don't repeat it in the snippet.
     snippet: c.text.replace(/\s+/g, ' ').replace(new RegExp(`^${c.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, ' ')}\\s*`, 'i'), '').slice(0, 220),
     score: c.score,
@@ -108,14 +111,32 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
     send('status', { stage: 'retrieving', query });
     const queries = history.length ? [query] : [question, query];
     const broad = turn.intent === 'broad' || isBroad(question);
-    const { results, confidence, lowConfidence } = await retriever.retrieve(queries, broad
+    const found = await retriever.retrieve(queries, broad
       ? { topK: config.BROAD_TOP_K, maxPerSource: config.BROAD_MAX_PER_SOURCE }
       : {});
+    const { confidence, lowConfidence } = found;
+    // Newest first; much older matches are marked so they're shown last.
+    const { results, older } = orderByRecency(found.results, { windowDays: config.RECENT_WINDOW_DAYS });
     log.broad = broad;
     log.retrieved = results.map((r) => ({ id: r.id, score: r.score, cos: r.cosine && +r.cosine.toFixed(3), by: r.retrievedBy }));
     log.confidence = confidence;
-    turn.sources = results.map((c, i) => sourceView(c, i + 1));
     turn.confidence = confidence; turn.lowConfidence = lowConfidence;
+
+    // Out of scope: the question is unrelated to the site AND nothing on the
+    // site matches it. Answer with a fixed reply instead of asking the model,
+    // so Sophia never answers from general knowledge.
+    if (isOutOfScope(turn.intent, lowConfidence)) {
+      turn.answer = OUT_OF_SCOPE_ANSWER;
+      turn.mode = 'out-of-scope';
+      log.outOfScope = true;
+      send('sources', []);
+      send('token', { text: turn.answer });
+      const turnId = saveTurn();
+      send('done', { finishReason: 'out_of_scope', mode: 'out-of-scope', model: null, promptVersion: PROMPT_VERSION, rewrittenQuery: query, confidence, latencyMs: Date.now() - t0, turnId });
+      return;
+    }
+
+    turn.sources = results.map((c, i) => sourceView(c, i + 1, older.has(c.id)));
     send('sources', turn.sources);
 
     // 3. Generate.
@@ -133,7 +154,7 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
     const today = new Date().toLocaleDateString('en-US', { timeZone: 'America/Chicago', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     const apiMessages = [
       ...history,
-      { role: 'user', content: buildUserTurn(question, results, { lowConfidence, today, facts, broad, person, intent: turn.intent }) },
+      { role: 'user', content: buildUserTurn(question, results, { lowConfidence, today, facts, broad, person, intent: turn.intent, older }) },
     ];
     // The trailing <suggestions> block is cut out of the visible stream.
     let split = new SuggestionSplitter();
@@ -178,6 +199,13 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
   }
 }
 
+export const OUT_OF_SCOPE_ANSWER = "That information doesn't exist in the BetterCare documents, so I can't answer it. I can help with Epic upgrades, training and tip sheets, Abridge, Haiku and Canto, Wisdom dental, Beaker lab, AI in healthcare, and the help desk.";
+
+/** Skip the model when the question is unrelated to the site and retrieval found nothing close. */
+export function isOutOfScope(intent, lowConfidence) {
+  return intent === 'offtopic' && lowConfidence;
+}
+
 /** "What's new for surgeons", "summarize the upgrade", "everything about X". */
 export function isBroad(q) {
   return /\b(what('?s| is| are)? new|what changed|changes|summar\w*|overview|highlights?|everything|all (the )?(changes|features|updates)|key features|need to know|should .* know)\b/i.test(q);
@@ -186,7 +214,7 @@ export function isBroad(q) {
 /** No-LLM mode: present the best matches verbatim, with citations. */
 export function extractiveAnswer(results, lowConfidence) {
   if (!results.length || lowConfidence) {
-    return "I couldn't find a clear answer on the BetterCare site. The closest matches are listed below.";
+    return "That information doesn't exist in the BetterCare documents. The closest matches are listed below.";
   }
   const top = results.slice(0, 3).map((c, i) => {
     const body = c.text.replace(/\n+/g, ' ').slice(0, 320);

@@ -4,7 +4,7 @@
 import { config } from './config.mjs';
 import { KIND_LABEL } from './corpus.mjs';
 
-export const PROMPT_VERSION = 'bc-2026-09-29.1';
+export const PROMPT_VERSION = 'bc-2026-10-08.1';
 
 // Byte-identical on every request (cacheable). Nothing volatile goes here.
 export const SYSTEM = `You are Sophia, an assistant that helps people use the ${config.SITE_NAME} SharePoint site of UT Health San Antonio's Clinical IT team. If asked who you are, you are Sophia. The site covers Epic (upgrades, Refuel phases, training, tip sheets, Haiku/Canto, Wisdom dental, Beaker lab), Abridge ambient AI documentation, generative AI in healthcare, analytics and reporting, and help-desk resources.
@@ -25,7 +25,10 @@ Citations and sources:
 - Cite every factual claim with the excerpt number in square brackets, like [2] or [1, 3], placed right after the claim.
 - When the best answer is a document, tip sheet, form, or page, name it and cite it so the person can open it. If an excerpt contains a useful link (a ticket form, a registration page), include the URL.
 - If the excerpts only partly answer the question, say what the site covers and what it doesn't.
-- If the excerpts don't answer it, say plainly that you couldn't find it on the BetterCare site, and suggest the closest related items you did find, if any. Never guess or fill gaps from general knowledge; people act on these answers.
+- If the excerpts don't answer it, say plainly: "That information doesn't exist in the BetterCare documents." Then suggest the closest related items you did find, if any. Never guess or fill gaps from general knowledge, even for common facts; people act on these answers.
+- Never give medical advice, drug doses, diagnoses, or clinical guidance unless an excerpt states it as guidance, and then only as the site states it, cited. Clinical details that appear only as an example (sample notes, demo conversations, use cases, training scenarios) are not guidance: say the information doesn't exist in the BetterCare documents and don't repeat those details.
+- Questions unrelated to the site (general knowledge, news, personal tasks, coding, other organizations' systems) get one line: that information doesn't exist in the BetterCare documents, and what you can help with instead. Do not answer them, even partly.
+- Newest first: excerpts come ordered newest first. When you list several items (news, upgrades, events, documents), list the newest first. Excerpts marked "older" are well before the newest matches: use them only when nothing newer answers the question, and say they're older.
 - Dates matter: events, upgrades, and go-lives have dates in the excerpts. Today's date is given with each question; say whether something is upcoming or past when relevant.
 
 About the person: each question comes with a <person> block (their role, and what they've asked about before). Use it to pick what's relevant to them, such as the nursing side of an upgrade for a nurse. When it genuinely helps, connect to something they asked before ("Since you've set up Abridge, …"). Don't recite their history, don't remark on what you know about them, and use their name rarely.
@@ -72,13 +75,13 @@ export function rewriteSchema(topicNames) {
   };
 }
 
-function excerptHeader(n, c) {
+function excerptHeader(n, c, isOlder = false) {
   const kind = KIND_LABEL[c.kind] || c.kind;
   const where = [c.title, ...(c.headingPath || [])].filter(Boolean).join(' > ');
   const bits = [`[${n}] ${kind}: ${where}`];
   if (c.list && c.sourceType !== 'page') bits.push(`Location: ${c.list}${c.meta?.shownOn ? `, shown on page "${c.meta.shownOn}"` : ''}`);
   const date = c.meta?.date || c.meta?.published || c.meta?.modified;
-  if (date) bits.push(`Date: ${date}`);
+  if (date) bits.push(`Date: ${date}${isOlder ? ' (older: well before the newest matches)' : ''}`);
   bits.push(`URL: ${c.url}`);
   return bits.join('\n');
 }
@@ -92,14 +95,14 @@ const INTENT_HINT = {
 };
 
 /** The user turn: excerpts, the person, then the question. */
-export function buildUserTurn(question, results, { lowConfidence, today, facts, broad, person = '', intent = null }) {
+export function buildUserTurn(question, results, { lowConfidence, today, facts, broad, person = '', intent = null, older = new Set() }) {
   const excerpts = results.map((c, i) => {
     const links = (c.links || []).slice(0, 8).map((l) => `  - ${l.text}: ${l.url}`).join('\n');
-    return `${excerptHeader(i + 1, c)}\n${c.text}${links ? `\nLinks:\n${links}` : ''}`;
+    return `${excerptHeader(i + 1, c, older.has(c.id))}\n${c.text}${links ? `\nLinks:\n${links}` : ''}`;
   }).join('\n\n---\n\n');
 
   const hedge = lowConfidence
-    ? '\n\nNote: the search found only weak matches for this question. If the excerpts do not clearly answer it, say you could not find it on the site rather than stretching them.'
+    ? '\n\nNote: the search found only weak matches for this question. If the excerpts do not clearly answer it, say that information does not exist in the BetterCare documents rather than stretching them.'
     : '';
 
   const scope = broad

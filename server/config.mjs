@@ -52,6 +52,10 @@ export const config = Object.freeze({
   // retrieval is weak. Tuned against tools/eval-retrieval.mjs.
   LOW_CONFIDENCE_THRESHOLD: Number(env.LOW_CONFIDENCE_THRESHOLD || 0.69),
 
+  // Sources dated more than this many days before the newest match are
+  // "older": listed last, under "Older results" in the pane.
+  RECENT_WINDOW_DAYS: int('RECENT_WINDOW_DAYS', 365),
+
   // Users, question history, feedback, pushed content (SQLite).
   DB_FILE: env.SOPHIA_DB || fileURLToPath(new URL('../data/sophia.db', import.meta.url)),
 

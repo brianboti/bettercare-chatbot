@@ -13,13 +13,14 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseHTML } from 'linkedom';
 import { clean, textOf, chunkSections, spUrl, sha, absUrl } from './common.mjs';
+import { testMarker } from './test-content.mjs';
 
 /**
  * Pages that are drafts, tests or superseded copies. Matched against the file
  * name; each is reported, never silently dropped.
  */
 export const PAGE_EXCLUDE = [
-  [/test/i, 'test page'],
+  [{ test: (name) => !!testMarker(name) }, 'test page'],
   [/-OLD\.aspx$/i, 'superseded copy'],
   [/^HomeBC-Demo/i, 'home page design demo'],
   [/^HomeProposed\.aspx$/i, 'home page design proposal'],
@@ -122,6 +123,7 @@ export function ingestPages(siteDir) {
     const name = p.FileLeafRef;
     const rule = PAGE_EXCLUDE.find(([re]) => re.test(name));
     if (rule) { report.excluded.push({ page: name, why: rule[1] }); continue; }
+    if (testMarker(clean(p.Title))) { report.excluded.push({ page: name, why: `test page (title "${clean(p.Title)}")` }); continue; }
     report.pages++;
 
     const { sections, links } = canvasSections(p.CanvasContent1);

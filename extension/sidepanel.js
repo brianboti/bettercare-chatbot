@@ -23,26 +23,67 @@ const CONVERSATION_ID = `c-${Date.now().toString(36)}`;
 const THUMB_UP = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M7 11v9H4v-9zM7 11l4-8c1.7 0 2.7 1.2 2.3 2.8L12.6 9H19a2 2 0 0 1 2 2.3l-1.2 7A2 2 0 0 1 17.8 20H7"/></svg>';
 const THUMB_DOWN = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M7 13V4H4v9zM7 13l4 8c1.7 0 2.7-1.2 2.3-2.8L12.6 15H19a2 2 0 0 0 2-2.3l-1.2-7A2 2 0 0 0 17.8 4H7"/></svg>';
 
-/** Helpful / Not helpful under an answer. */
+/** Helpful / Not helpful under an answer, then an optional comment box. */
 function feedbackRow(getTurnId) {
   const thanks = el('span', { class: 'feedback__thanks', role: 'status' });
+  const thanksFor = (v) => (v > 0 ? 'Thanks!' : "Thanks. This helps us fix what's missing.");
   let current = 0;
-  const mk = (value, label, svg) => {
-    const b = el('button', { class: 'feedback__btn', type: 'button', title: label, 'aria-label': label, 'aria-pressed': 'false' });
+  const send = (body) => {
+    const turnId = getTurnId();
+    return turnId ? apiJson(API, '/api/feedback', { userId: USER_ID, body: { turnId, ...body } }) : Promise.resolve(null);
+  };
+
+  const label = el('label', { class: 'feedback__label', for: `fb-${Math.random().toString(36).slice(2, 8)}` });
+  const box = el('textarea', { class: 'feedback__text', id: label.getAttribute('for'), rows: '3', maxlength: '500' });
+  const err = el('span', { class: 'feedback__err', role: 'alert' });
+  const skip = el('button', { class: 'btn btn--small btn--quiet', type: 'button', text: 'Skip' });
+  const submit = el('button', { class: 'btn btn--small', type: 'submit', text: 'Send' });
+  const form = el('form', { class: 'feedback__form', hidden: '' }, [
+    label, box,
+    el('div', { class: 'feedback__foot' }, [err, el('small', { text: 'Read by the Clinical IT team.' }), skip, submit]),
+  ]);
+  const close = (msg) => { form.hidden = true; if (msg) thanks.textContent = msg; };
+  skip.addEventListener('click', () => close(thanksFor(current)));
+  form.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') close();
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) form.requestSubmit();
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const note = box.value.trim();
+    if (!note) return close(thanksFor(current));
+    submit.disabled = true;
+    err.textContent = '';
+    const ok = await send({ value: current, note });
+    submit.disabled = false;
+    if (!ok) { err.textContent = "Couldn't send. Try again."; return; }
+    close('Thanks, your feedback was sent.');
+  });
+
+  const mk = (value, labelText, svg) => {
+    const b = el('button', { class: 'feedback__btn', type: 'button', title: labelText, 'aria-label': labelText, 'aria-pressed': 'false' });
     b.innerHTML = svg;                                       // static icon markup only
-    b.addEventListener('click', async () => {
+    b.addEventListener('click', () => {
       current = current === value ? 0 : value;
       for (const x of row.querySelectorAll('.feedback__btn')) x.setAttribute('aria-pressed', 'false');
-      if (!current) { thanks.textContent = ''; return; }
-      b.setAttribute('aria-pressed', 'true');
-      thanks.textContent = value > 0 ? 'Thanks!' : "Thanks. This helps us fix what's missing.";
-      const turnId = getTurnId();
-      if (turnId) await apiJson(API, '/api/feedback', { userId: USER_ID, body: { turnId, value } });
+      thanks.textContent = '';
+      if (current) {
+        b.setAttribute('aria-pressed', 'true');
+        label.textContent = value > 0 ? 'What was helpful? (optional)' : 'What was wrong or missing? (optional)';
+        box.placeholder = value > 0 ? 'e.g. It linked straight to the tip sheet I needed' : 'e.g. It pointed to the old version of the policy';
+        box.value = '';
+        err.textContent = '';
+        form.hidden = false;
+        box.focus();
+      } else {
+        close();
+      }
+      send({ value: current });
     });
     return b;
   };
   const row = el('div', { class: 'feedback' }, [mk(1, 'Helpful', THUMB_UP), mk(-1, 'Not helpful', THUMB_DOWN), thanks]);
-  return row;
+  return el('div', {}, [row, form]);
 }
 import { renderAnswer } from './lib/render.js';
 import { buildIndex, search } from './search.js';
@@ -202,7 +243,8 @@ function citeChip(sources, n) {
 
 function sourceCard(s) {
   const where = s.headingPath?.length ? s.headingPath.join(' › ') : s.list;
-  const meta = [KIND_LABEL[s.kind] || s.kind, where, s.date].filter(Boolean).join(' · ');
+  const when = s.date || (s.updated ? `Updated ${s.updated}` : null);
+  const meta = [KIND_LABEL[s.kind] || s.kind, where, when].filter(Boolean).join(' · ');
   const card = el('div', { class: 'cite', 'data-kind': s.kind }, [
     el('span', { class: 'cite__spine', 'aria-hidden': 'true' }),
     el('a', { class: 'cite__body', href: s.url, target: '_blank', rel: 'noopener' }, [
@@ -219,14 +261,16 @@ function sourceCard(s) {
   return card;
 }
 
-/** Sources shown under an answer: cited ones first, then (collapsed) the rest. */
+/** Sources shown under an answer: cited ones first, then (collapsed) the rest, then older ones. */
 function sourcesBlock(sources, answerText) {
   const cited = new Set([...answerText.matchAll(/\[(\d+(?:\s*,\s*\d+)*)\]/g)]
     .flatMap((m) => m[1].split(',').map((n) => Number(n.trim()))));
-  const used = sources.filter((s) => cited.has(s.n));
-  const rest = sources.filter((s) => !cited.has(s.n));
-  const primary = used.length ? used : sources.slice(0, 3);
-  const extra = used.length ? rest : sources.slice(3);
+  // Sources arrive newest first; much older ones go under "Older results".
+  const current = sources.filter((s) => !s.older);
+  const older = sources.filter((s) => s.older);
+  const used = current.filter((s) => cited.has(s.n));
+  const primary = used.length ? used : current.slice(0, 3);
+  const extra = current.filter((s) => !primary.includes(s));
 
   const block = el('div', { class: 'sources' }, [
     el('div', { class: 'sources__label', text: primary.length > 1 ? 'Sources' : 'Source' }),
@@ -238,6 +282,12 @@ function sourcesBlock(sources, answerText) {
       ...extra.map(sourceCard),
     ]);
     block.append(more);
+  }
+  if (older.length) {
+    block.append(el('details', { class: 'sources__more' }, [
+      el('summary', { text: `Older results (${older.length})` }),
+      ...older.map(sourceCard),
+    ]));
   }
   return block;
 }

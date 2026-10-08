@@ -1,3 +1,4 @@
+// Covers: The follow-up question chips: cutting the suggestions block out of a streamed answer, and reading the chips from it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SuggestionSplitter, parseSuggestions } from '../server/followups.mjs';

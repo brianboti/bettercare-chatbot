@@ -15,16 +15,20 @@
         <p class="sub">What people ask BetterCare's assistant, what they find, and where they get stuck</p>
       </div>
     </div>
+    <nav class="tabs" id="tabs" aria-label="Sections" hidden>
+      <a href="#insights" data-tab="insights">Insights</a>
+      <a href="#tests" data-tab="tests">Tests</a>
+    </nav>
     <div class="controls" id="controls" hidden>
       <span class="badge badge--demo" id="demoBadge" hidden title="Seeded demo activity is mixed in with real questions. Remove it with: npm run seed:demo -- --clear">Includes demo data</span>
-      <label class="ctl">Period
+      <label class="ctl" data-insights>Period
         <select id="days">
           <option value="7">Last 7 days</option>
           <option value="30" selected>Last 30 days</option>
           <option value="90">Last 90 days</option>
         </select>
       </label>
-      <label class="ctl">Role
+      <label class="ctl" data-insights>Role
         <select id="role"><option value="">Everyone</option></select>
       </label>
       <span class="who" id="who"></span>

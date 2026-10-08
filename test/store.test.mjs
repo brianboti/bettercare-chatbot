@@ -1,3 +1,4 @@
+// Covers: The database: profiles, question history, peer suggestions, pushed content, admin insights and feedback.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openStore, normalizeQuestion } from '../server/store.mjs';
@@ -82,7 +83,41 @@ test('insights flag weak matches, thumbs down, and questions asked again', () =>
 test('feedback only applies to your own turns', () => {
   const s = fixture();
   const t = s.addTurn({ userId: 'me', conversationId: 'c', question: 'q' });
+
+test('feedback comments show up in insights, and clearing a rating drops it', () => {
+  const s = fixture();
+  const a = s.addTurn({ userId: 'me', conversationId: 'c', question: 'Where is the Haiku tip sheet?', answer: 'Here [1].' });
+  const b = s.addTurn({ userId: 'doc', conversationId: 'd', question: 'q2' });
+  s.setFeedback(a, 'me', -1, 'Linked the old version');
+  s.setFeedback(b, 'doc', 1, null);
+  let fb = s.insights().feedback;
+  assert.deepEqual(fb.map((f) => [f.question, f.value, f.note]), [['q2', 1, null], ['Where is the Haiku tip sheet?', -1, 'Linked the old version']]);
+  assert.equal(fb[1].answer, 'Here.');
+  assert.equal(s.insights().totals.comments, 1);
+  s.setFeedback(a, 'me', null, null);
+  fb = s.insights().feedback;
+  assert.deepEqual(fb.map((f) => f.question), ['q2']);
+});
   assert.equal(s.setFeedback(t, 'doc', 1), false);
   assert.equal(s.setFeedback(t, 'me', 1), true);
   assert.equal(s.getTurn(t).feedback, 1);
+});
+test('pushed content keeps its link, and link opens are counted', () => {
+  const s = fixture();
+  const p = s.savePromotion({ title: 'Thrive', prompt: 'When is Thrive?', roles: [], url: 'https://example.org/thrive' });
+  assert.equal(p.url, 'https://example.org/thrive');
+  // Turning it off and on (the admin toggle re-saves the whole row) keeps the link.
+  assert.equal(s.savePromotion({ ...p, active: false }).url, 'https://example.org/thrive');
+  s.addEvent({ userId: 'me', type: 'promo_link_click', ref: String(p.id) });
+  assert.equal(s.insights().promotions.find((x) => x.id === p.id).linkOpens, 1);
+});
+
+test('most asked questions carry their share of all questions', () => {
+  const s = fixture();
+  for (let i = 0; i < 3; i++) s.addTurn({ userId: 'n1', conversationId: `c${i}`, at: ago(1, i), question: 'Help desk number?', topics: [] });
+  s.addTurn({ userId: 'n1', conversationId: 'c9', at: ago(1, 9), question: 'Haiku setup', topics: [] });
+  const top = s.insights({ days: 7 }).topQuestions;
+  assert.equal(top[0].count, 3);
+  assert.equal(top[0].share, 0.75);
+  assert.equal(top[1].share, 0.25);
 });

@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { extract } from '../extract.mjs';
 import { ingestPages } from './pages.mjs';
 import { ingestDocuments } from './documents.mjs';
+import { testMarker, placeholderText } from './test-content.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SITE_DIR = resolve(ROOT, 'data/site');
@@ -55,9 +56,16 @@ function ingestLists() {
     return { list: l.list, id: l.id, items: l.items };
   });
   const { chunks, stats } = extract(corpus);
+  const testRows = [];
   const out = chunks
     // Hidden on the live site (e.g. unreleased upgrade content).
     .filter((c) => c.meta?.published !== false)
+    // Rows the site admin added to try something out ("Test", "test event").
+    .filter((c) => {
+      const why = testMarker(c.title) ? `"${c.title}"` : placeholderText(c.text.replace(c.title, '')) ? 'placeholder text' : null;
+      if (why) testRows.push(`${c.list}: ${why}`);
+      return !why;
+    })
     .map((c) => ({
       id: `list:${c.id}`,
       sourceId: `list:${c.id}`,
@@ -74,7 +82,7 @@ function ingestLists() {
       alsoIn: c.alsoIn,
       hash: c.hash,
     }));
-  return { chunks: out, report: { lists: stats.lists, skipped: stats.skipped.map((s) => `${s.list}: ${s.reason}`), unmapped: stats.unmapped, dropped: stats.dropped, droppedRows: stats.droppedRows } };
+  return { chunks: out, report: { lists: stats.lists, testRows, skipped: stats.skipped.map((s) => `${s.list}: ${s.reason}`), unmapped: stats.unmapped, dropped: stats.dropped, droppedRows: stats.droppedRows } };
 }
 
 /**
@@ -150,6 +158,12 @@ async function main() {
   writeFileSync(resolve(OUT_DIR, 'report.json'), JSON.stringify(report, null, 2));
   log(`\n${chunks.length} chunks (~${report.approxTokens.toLocaleString()} tokens) in ${((Date.now() - t0) / 1000).toFixed(0)}s`);
   log(JSON.stringify(report.byKind));
+  const testOut = [
+    ...pages.report.excluded.filter((e) => e.why.startsWith('test page')).map((e) => `page      ${e.page}`),
+    ...docs.report.testContent.map((d) => `document  ${d}`),
+    ...lists.report.testRows.map((r) => `list row  ${r}`),
+  ];
+  log(`\nLeft out as test content (${testOut.length}):${testOut.map((t) => `\n  ${t}`).join('')}`);
   if (docs.report.noText.length) log(`${docs.report.noText.length} PDFs look scanned (little or no text layer) — see report.json`);
   log(`wrote data/index/chunks.json, data/index/report.json`);
 }

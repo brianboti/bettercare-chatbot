@@ -11,6 +11,7 @@
     "ingest": "node src/ingest/index.mjs",
     "export:receiver": "node tools/export-receiver.mjs",
     "eval": "node --env-file-if-exists=.env tools/eval-retrieval.mjs",
+    "eval:scope": "node --env-file-if-exists=.env tools/eval-scope.mjs",
     "seed:demo": "node tools/seed-demo.mjs",
     "test": "node --test \"test/*.test.mjs\""
   },

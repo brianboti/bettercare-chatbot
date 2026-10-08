@@ -6,3 +6,4 @@ data/index/
 data/logs/
 .DS_Store
 data/sophia.db*
+data/eval/

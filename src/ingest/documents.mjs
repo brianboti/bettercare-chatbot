@@ -10,6 +10,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve, extname, dirname } from 'node:path';
 import { parseHTML } from 'linkedom';
 import { clean, textOf, chunkSections, spUrl, sha } from './common.mjs';
+import { testMarker, placeholderText } from './test-content.mjs';
 
 const SITE_PATH = '/sites/BetterCare/';
 
@@ -122,7 +123,7 @@ export async function ingestDocuments(siteDir, { cacheFile, ocrFile, log = () =>
   // Transcriptions of images and scanned PDFs (tools/ocr-with-claude.mjs).
   const ocr = ocrFile && existsSync(ocrFile) ? JSON.parse(readFileSync(ocrFile, 'utf8')) : {};
   const ocrText = (f) => ocr[`${f.path}|${f.size}`]?.text || null;
-  const report = { files: manifest.length, extracted: 0, cataloged: 0, skippedAssets: 0, duplicates: 0, noText: [], failed: [], missing: [] };
+  const report = { files: manifest.length, extracted: 0, cataloged: 0, skippedAssets: 0, duplicates: 0, noText: [], failed: [], missing: [], testContent: [] };
   const chunks = [];
   const byContent = new Map();       // text hash -> first chunk's sourceId (dedupe copies)
   let parsed = 0;
@@ -147,6 +148,10 @@ export async function ingestDocuments(siteDir, { cacheFile, ocrFile, log = () =>
     // Site Assets images/media are page decoration; the pages already cover them.
     if (f.library === 'Site Assets' && (IMAGE.has(ext) || MEDIA.has(ext) || !TEXT_TYPES.has(ext))) { report.skippedAssets++; continue; }
     if (f.library === 'Site Pages' || f.library === '_catalogs/hubsite' || f.library === 'Form Templates' || f.library === 'Style Library') continue;
+
+    // Files or folders the site admin made to try something out.
+    const marked = [...folder.split('/'), f.name].find((n) => testMarker(n));
+    if (marked) { report.testContent.push(`${rel} (“${marked}”)`); continue; }
 
     if (!TEXT_TYPES.has(ext)) {
       // Media and other binaries: findable by name and location.
@@ -187,6 +192,8 @@ export async function ingestDocuments(siteDir, { cacheFile, ocrFile, log = () =>
       const transcript = ocrText(f);
       if (transcript) { sections = [{ heading: null, text: transcript }]; allText = transcript; report.ocr = (report.ocr || 0) + 1; }
     }
+
+    if (placeholderText(allText)) { report.testContent.push(`${rel} (placeholder text)`); continue; }
 
     // Byte-identical content stored in several places: index once, record copies.
     const contentKey = sha(allText, 16);
