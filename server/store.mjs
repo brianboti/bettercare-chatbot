@@ -317,7 +317,7 @@ export function openStore(file) {
     const trouble = turns
       .filter((t) => t.low_confidence || t.feedback < 0 || t.error || rephrased.has(t.id))
       .reverse()
-      .slice(0, 60)
+      .slice(0, 300)
       .map((t) => ({
         id: t.id, at: t.at, role: t.role, question: t.question, topics: j(t.topics, []), confidence: t.confidence,
         reasons: [t.low_confidence && 'weak match', t.feedback < 0 && 'thumbs down', t.error && 'error', rephrased.has(t.id) && 'asked again'].filter(Boolean),
@@ -393,7 +393,7 @@ export function openStore(file) {
       trouble,
       feedback,
       opened: [...opened.values()].sort((a, b) => b.count - a.count).slice(0, 12),
-      recent: turns.slice(-40).reverse().map((t) => ({ id: t.id, at: t.at, role: t.role, question: t.question, topics: j(t.topics, []), feedback: t.feedback, note: t.feedback_note, lowConfidence: !!t.low_confidence })),
+      recent: turns.slice(-300).reverse().map((t) => ({ id: t.id, at: t.at, role: t.role, question: t.question, topics: j(t.topics, []), feedback: t.feedback, note: t.feedback_note, lowConfidence: !!t.low_confidence })),
       promotions: promos,
       spend: {
         ...spend,

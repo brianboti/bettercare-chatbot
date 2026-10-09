@@ -183,7 +183,12 @@ details.answer { margin-top: 6px; }
 .seg-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .fb-down { color: var(--crit-ink); }
 .kind { font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .04em; }
-.feed { max-height: 420px; overflow-y: auto; }
+.paged { display: grid; gap: 8px; min-width: 0; }
+.pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; font-size: 12px; padding-top: 6px; border-top: 1px solid var(--line-soft); }
+.pager-btns { display: flex; align-items: center; gap: 8px; }
+.pager-n { color: var(--ink-2); white-space: nowrap; }
+.btn--page { font-size: 12px; padding: 3px 10px; }
+.btn--page:disabled { opacity: .45; cursor: default; background: none; }
 
 /* ------------------------------------------------------------ promotions */
 .promo-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); gap: 20px; align-items: start; }

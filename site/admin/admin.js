@@ -11,7 +11,7 @@ const tip = document.getElementById('tip');
 const daysSel = document.getElementById('days');
 const roleSel = document.getElementById('role');
 
-const state = { userId: readUserId(), days: 30, role: '', data: null, roles: new Map(), editing: null, flash: null, fbFilter: 'all' };
+const state = { userId: readUserId(), days: 30, role: '', data: null, roles: new Map(), editing: null, flash: null, fbFilter: 'all', pages: new Map() };
 
 // ---------------------------------------------------------------- utilities
 
@@ -152,8 +152,9 @@ function fillRoleSelect(roles) {
   roleSel.value = state.role;
 }
 
-daysSel.addEventListener('change', () => { state.days = Number(daysSel.value); load(); });
-roleSel.addEventListener('change', () => { state.role = roleSel.value; load(); });
+// A new period or role starts every table back on its first page.
+daysSel.addEventListener('change', () => { state.days = Number(daysSel.value); state.pages.clear(); load(); });
+roleSel.addEventListener('change', () => { state.role = roleSel.value; state.pages.clear(); load(); });
 
 // ---------------------------------------------------------------- render
 
@@ -404,12 +405,48 @@ function topicTags(topics) {
   return topics?.length ? el('div', { class: 'topics' }, topics.map((t) => el('span', { class: 'topic', text: t }))) : null;
 }
 
-function dataTable(head, rows, empty) {
+/**
+ * A table of prebuilt rows. With `page`, it shows `pageSize` rows at a time
+ * with Previous/Next under it; the page is remembered in state.pages[page]
+ * so a re-render (saving a promotion, switching tabs) stays on it.
+ */
+function dataTable(head, rows, empty, { page = null, pageSize = 10 } = {}) {
   if (!rows.length) return el('p', { class: 'empty', text: empty });
-  return el('div', { class: 'tbl-wrap' }, el('table', { class: 'data' }, [
-    el('thead', {}, el('tr', {}, head.map(([label, cls]) => el('th', { class: cls, text: label })))),
-    el('tbody', {}, rows),
-  ]));
+  const thead = el('thead', {}, el('tr', {}, head.map(([label, cls]) => el('th', { class: cls, text: label }))));
+  if (!page || rows.length <= pageSize) {
+    return el('div', { class: 'tbl-wrap' }, el('table', { class: 'data' }, [thead, el('tbody', {}, rows)]));
+  }
+
+  const pages = Math.ceil(rows.length / pageSize);
+  const wrap = el('div', { class: 'paged' });
+  const show = (n, { scroll = false } = {}) => {
+    n = Math.min(pages - 1, Math.max(0, n));
+    state.pages.set(page, n);
+    const from = n * pageSize, to = Math.min(rows.length, from + pageSize);
+    const btn = (text, label, to, disabled) => el('button', {
+      type: 'button', class: 'btn btn--page', text, 'aria-label': label, disabled,
+      onclick: () => show(to, { scroll: true }),
+    });
+    wrap.replaceChildren(
+      el('div', { class: 'tbl-wrap' }, el('table', { class: 'data' }, [thead, el('tbody', {}, rows.slice(from, to))])),
+      el('nav', { class: 'pager', 'aria-label': 'Table pages' }, [
+        el('span', { class: 'muted', role: 'status', text: `${fmtN(from + 1)}–${fmtN(to)} of ${fmtN(rows.length)}` }),
+        el('div', { class: 'pager-btns' }, [
+          btn('‹ Previous', 'Previous page', n - 1, n === 0),
+          el('span', { class: 'pager-n', text: `Page ${n + 1} of ${pages}` }),
+          btn('Next ›', 'Next page', n + 1, n === pages - 1),
+        ]),
+      ]),
+    );
+    // Keep the table's top in view when a shorter page pulls it up under the sticky header.
+    if (scroll) {
+      const top = wrap.getBoundingClientRect().top;
+      const header = document.querySelector('.top')?.getBoundingClientRect().bottom || 0;
+      if (top < header) window.scrollBy(0, top - header - 12);
+    }
+  };
+  show(state.pages.get(page) || 0);
+  return wrap;
 }
 
 function trouble(d) {
@@ -423,6 +460,7 @@ function trouble(d) {
       el('td', { class: 'num', title: 'Best meaning-match score for the question (below 0.69 counts as weak)', text: t.confidence != null ? t.confidence.toFixed(2) : '—' }),
     ])),
     'Nothing flagged in this period.',
+    { page: 'trouble' },
   );
 }
 
@@ -435,7 +473,7 @@ const FB_FILTERS = [
 
 function feedback(d) {
   const list = d.feedback || [];
-  const body = el('div', { class: 'feed' });
+  const body = el('div');
   const seg = el('div', { class: 'seg', role: 'group', 'aria-label': 'Show' });
   const paint = () => {
     for (const b of seg.children) b.setAttribute('aria-pressed', String(b.dataset.key === state.fbFilter));
@@ -454,12 +492,13 @@ function feedback(d) {
         ]),
       ])),
       list.length ? 'Nothing matches this filter.' : 'No ratings in this period.',
+      { page: 'feedback' },
     ));
   };
   for (const [key, label, keep] of FB_FILTERS) {
     seg.append(el('button', {
       type: 'button', class: 'seg-btn', 'data-key': key, text: `${label} (${fmtN(list.filter(keep).length)})`,
-      onclick: () => { state.fbFilter = key; paint(); },
+      onclick: () => { state.fbFilter = key; state.pages.delete('feedback'); paint(); },
     }));
   }
   paint();
@@ -502,7 +541,7 @@ function topQuestions(d) {
 }
 
 function recent(d) {
-  const table = dataTable(
+  return dataTable(
     [['When'], ['Role'], ['Question'], ['Outcome']],
     d.recent.map((t) => el('tr', {}, [
       el('td', { class: 'when', text: fmtWhen(t.at) }),
@@ -516,8 +555,8 @@ function recent(d) {
       ])),
     ])),
     'No questions in this period.',
+    { page: 'recent' },
   );
-  return el('div', { class: 'feed' }, table);
 }
 
 // ---------------------------------------------------------------- promotions
@@ -565,6 +604,7 @@ function promotions(d) {
     [['Content'], ['Audience'], ['Dates'], ['Shown', 'num'], ['Clicked', 'num'], ['Click rate', 'num'], ['Showing'], ['']],
     rows,
     'Nothing pushed yet. Add something with the form.',
+    { page: 'promotions', pageSize: 8 },
   );
   const flash = state.flash ? el('p', { class: `msg ${state.flash.ok ? 'ok' : 'err'}`, role: 'status', text: state.flash.text }) : null;
   state.flash = null;
