@@ -17,6 +17,8 @@ Changes to docs or tests alone don't need a release.
 
 ## Unreleased
 
+## [2.7.1] — 2026-10-09
+
 ### Changed
 - Admin panel follows the Sophia design spec (BetterCare theme): always a
   white page with no dark mode, the spec's type ramp, 12px controls and 16px
