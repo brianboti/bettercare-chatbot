@@ -97,7 +97,7 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
     if (useLlm) {
       send('status', { stage: 'rewriting' });
       try {
-        const r = await rewriteQuery(history, question, facts, person);
+        const r = await rewriteQuery(history, question, facts, person, { userId: user?.id });
         query = r.query; turn.topics = r.topics; turn.intent = r.intent;
       } catch { /* fall back to the raw question */ }
     } else if (history.length) {
@@ -161,7 +161,7 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
     const out = await streamAnswer(apiMessages, {
       onText: (text) => { const shown = split.push(text); if (shown) { turn.answer += shown; send('token', { text: shown }); } },
       onReset: () => { split = new SuggestionSplitter(); turn.answer = ''; send('reset', {}); },
-    }, signal);
+    }, signal, { userId: user?.id });
     const tail = split.finish();
     if (tail.text) { turn.answer += tail.text; send('token', { text: tail.text }); }
     turn.answer = turn.answer.trimEnd();

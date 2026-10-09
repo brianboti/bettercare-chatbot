@@ -24,7 +24,7 @@ import { config } from './config.mjs';
 import { ROOT, loadChunks } from './corpus.mjs';
 import { buildRetriever } from './retriever.mjs';
 import { runChat, parseMessages, sourceView, ChatError } from './chat.mjs';
-import { llmAvailable } from './llm.mjs';
+import { llmAvailable, onUsage } from './llm.mjs';
 import { PROMPT_VERSION } from './prompt.mjs';
 import { openStore } from './store.mjs';
 import { welcome } from './personalize.mjs';
@@ -49,6 +49,7 @@ const retriever = await buildRetriever(chunks, { log: (m) => console.log(m) });
 const site = await import('../site/server.mjs').catch((e) => { console.warn('site replica disabled:', e.message); return null; });
 site?.init?.({ chunks });
 const store = openStore(config.DB_FILE);
+onUsage((c) => store.addLlmCall(c));
 
 // ---------------------------------------------------------------- helpers
 

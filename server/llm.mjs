@@ -7,6 +7,14 @@ import { TOPIC_NAMES, cleanTopics } from './topics.mjs';
 
 let client = null;
 
+// Where each call's usage goes (the store, for the spend dashboard). Set once
+// by the server; tools that import this module record nothing.
+let usageSink = null;
+export function onUsage(fn) { usageSink = fn; }
+function report(purpose, res, meta = {}) {
+  try { usageSink?.({ purpose, model: res.model, usage: res.usage, userId: meta.userId ?? null }); } catch (e) { console.warn('could not record usage:', e.message); }
+}
+
 /** True when an API credential is available and the LLM isn't disabled. */
 export function llmAvailable() {
   if (!config.LLM_ENABLED) return false;
@@ -29,7 +37,7 @@ const fallback = () => (config.REFUSAL_FALLBACK
  * for answer length).
  * @returns {Promise<{ query: string, topics: string[], intent: string|null }>}
  */
-export async function rewriteQuery(history, latest, facts = '', person = '') {
+export async function rewriteQuery(history, latest, facts = '', person = '', meta = {}) {
   const transcript = history.length
     ? history.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 1500)}`).join('\n')
     : '(no earlier messages)';
@@ -42,6 +50,7 @@ export async function rewriteQuery(history, latest, facts = '', person = '') {
     system: REWRITE_SYSTEM,
     messages: [{ role: 'user', content: `${facts ? `<site_facts>\n${facts}\n</site_facts>\n\n` : ''}${person ? `<person>\n${person}\n</person>\n\n` : ''}<conversation>\n${transcript}\n</conversation>\n\nLatest message: ${latest}` }],
   });
+  report('rewrite', res, meta);
   const fallbackResult = { query: latest, topics: [], intent: null };
   if (res.stop_reason === 'refusal') return fallbackResult;
   const text = res.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
@@ -57,7 +66,7 @@ export async function rewriteQuery(history, latest, facts = '', person = '') {
  * One short structured call: Claude writes the welcome line and phrases the
  * suggestion cards in Sophia's voice. `schema` constrains the output.
  */
-export async function generateJson(system, content, schema, { maxTokens = 1500 } = {}) {
+export async function generateJson(system, content, schema, { maxTokens = 1500, purpose = 'other', userId = null } = {}) {
   const res = await anthropic().beta.messages.create({
     model: config.ANTHROPIC_MODEL,
     max_tokens: maxTokens,
@@ -67,6 +76,7 @@ export async function generateJson(system, content, schema, { maxTokens = 1500 }
     system,
     messages: [{ role: 'user', content }],
   });
+  report(purpose, res, { userId });
   if (res.stop_reason !== 'end_turn') return null;
   try { return JSON.parse(res.content.filter((b) => b.type === 'text').map((b) => b.text).join('')); } catch { return null; }
 }
@@ -77,7 +87,7 @@ export async function generateJson(system, content, schema, { maxTokens = 1500 }
  * so far should be discarded).
  * @returns {Promise<{ stopReason: string, model: string, usage: object }>}
  */
-export async function streamAnswer(messages, { onText, onReset }, signal) {
+export async function streamAnswer(messages, { onText, onReset }, signal, meta = {}) {
   const stream = anthropic().beta.messages.stream({
     model: config.ANTHROPIC_MODEL,
     max_tokens: config.MAX_TOKENS,
@@ -94,6 +104,7 @@ export async function streamAnswer(messages, { onText, onReset }, signal) {
     else if (event.type === 'content_block_start' && event.content_block.type === 'fallback') onReset?.();
   }
   const final = await stream.finalMessage();
+  report('answer', final, meta);
   return { stopReason: final.stop_reason, model: final.model, usage: final.usage, stopDetails: final.stop_details };
 }
 

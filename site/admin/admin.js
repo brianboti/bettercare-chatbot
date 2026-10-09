@@ -177,6 +177,7 @@ function render() {
       card('Where people end up', 'Sources opened from answers', opened(d)),
     ]),
     card('Recent questions', 'Newest first', recent(d)),
+    card(`Claude spend${scope}`, 'Estimated from Claude API list prices, for the calls this server makes. Evals, OCR and test runs aren’t counted.', spend(d)),
     card('Pushed content', 'What Clinical IT wants people to see. Shown as suggestion cards on Sophia’s welcome screen for the chosen roles.', promotions(d)),
   );
 }
@@ -204,28 +205,33 @@ function kpis(d) {
 
 // ---------------------------------------------------------------- daily bars
 
-function niceMax(v) {
-  if (v <= 5) return 5;
+function niceMax(v, floor = 5) {
+  if (v <= floor) return floor;
   const p = 10 ** Math.floor(Math.log10(v));
   for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;
   return 10 * p;
 }
 
-function daily(d) {
-  // Fill every day in the window, including days with no questions.
-  const counts = new Map(d.byDay.map((x) => [x.day, x.count]));
+const daily = (d) => dayBars(d.days, d.byDay.map((x) => [x.day, x.count]), {
+  label: `Questions per day over the last ${d.days} days`, head: 'Questions', fmt: fmtN,
+  tip: (n) => `${fmtN(n)} question${n === 1 ? '' : 's'}`,
+});
+
+/** One bar per day for the last `nDays` days. `points` is [[day, value]]; missing days are 0. */
+function dayBars(nDays, points, { label, head, fmt, tickFmt = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1)), tip: tipText, minMax = 5 }) {
+  const counts = new Map(points);
   const days = [];
   const today = new Date();
-  for (let i = d.days - 1; i >= 0; i--) {
+  for (let i = nDays - 1; i >= 0; i--) {
     const day = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - i)).toISOString().slice(0, 10);
     days.push({ day, count: counts.get(day) || 0 });
   }
-  const wrap = el('div', { class: 'chart', role: 'img', 'aria-label': `Questions per day over the last ${d.days} days` });
+  const wrap = el('div', { class: 'chart', role: 'img', 'aria-label': label });
   const draw = () => {
     const W = Math.max(300, wrap.clientWidth || 800), H = 190;
     const m = { l: 34, r: 6, t: 8, b: 24 };
     const iw = W - m.l - m.r, ih = H - m.t - m.b;
-    const max = niceMax(Math.max(1, ...days.map((x) => x.count)));
+    const max = niceMax(Math.max(...days.map((x) => x.count)), minMax);
     const y = (v) => m.t + ih - (v / max) * ih;
     const step = iw / days.length;
     const gap = days.length > 60 ? 1 : 2;
@@ -237,7 +243,7 @@ function daily(d) {
       const v = (max / ticks) * i;
       g.append(svg('line', { class: i ? 'gridline' : 'baseline', x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) }));
       const t = svg('text', { x: m.l - 6, y: y(v) + 4, 'text-anchor': 'end' });
-      t.textContent = Number.isInteger(v) ? String(v) : v.toFixed(1);
+      t.textContent = tickFmt(v);
       g.append(t);
     }
     const every = Math.ceil(days.length / Math.max(2, Math.floor(iw / 70)));
@@ -258,7 +264,7 @@ function daily(d) {
         class: 'bar',
         d: `M${x0},${y(0)} V${y(x.count) + r} Q${x0},${y(x.count)} ${x0 + r},${y(x.count)} H${x0 + bw - r} Q${x0 + bw},${y(x.count)} ${x0 + bw},${y(x.count) + r} V${y(0)} Z`,
       }) : null;
-      hit.addEventListener('mousemove', (e) => { bar?.classList.add('on'); showTip(e, [fmtDay(x.day), `${fmtN(x.count)} question${x.count === 1 ? '' : 's'}`]); });
+      hit.addEventListener('mousemove', (e) => { bar?.classList.add('on'); showTip(e, [fmtDay(x.day), tipText(x.count)]); });
       hit.addEventListener('mouseleave', () => { bar?.classList.remove('on'); hideTip(); });
       s.append(hit);
       if (bar) s.append(bar);
@@ -271,8 +277,8 @@ function daily(d) {
   const table = el('details', { class: 'tbl' }, [
     el('summary', { text: 'View as table' }),
     el('div', { class: 'tbl-wrap' }, el('table', { class: 'data' }, [
-      el('thead', {}, el('tr', {}, [el('th', { text: 'Day' }), el('th', { class: 'num', text: 'Questions' })])),
-      el('tbody', {}, days.slice().reverse().map((x) => el('tr', {}, [el('td', { text: fmtDay(x.day) }), el('td', { class: 'num', text: fmtN(x.count) })]))),
+      el('thead', {}, el('tr', {}, [el('th', { text: 'Day' }), el('th', { class: 'num', text: head })])),
+      el('tbody', {}, days.slice().reverse().map((x) => el('tr', {}, [el('td', { text: fmtDay(x.day) }), el('td', { class: 'num', text: fmt(x.count) })]))),
     ])),
   ]);
   return el('div', {}, [wrap, table]);
@@ -333,6 +339,56 @@ function heatmap(d) {
     el('span', { text: 'More of that role’s questions' }),
   ]);
   return el('div', {}, [el('div', { class: 'heat-wrap' }, table), legend]);
+}
+
+// ---------------------------------------------------------------- spend
+
+const PURPOSE = { answer: 'Answers', rewrite: 'Search rewrite', welcome: 'Welcome cards' };
+const usd = (v) => (v >= 100 ? `$${Math.round(v).toLocaleString('en-US')}` : v >= 1 ? `$${v.toFixed(2)}` : v > 0 ? `$${v.toFixed(v < 0.01 ? 4 : 3)}` : '$0');
+const fmtTok = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : fmtN(n));
+
+function spend(d) {
+  const s = d.spend;
+  if (!s?.calls) {
+    return el('p', { class: 'empty', text: s?.since ? 'No Claude calls in this period.' : 'No Claude calls recorded yet. Spend is tracked from the first answer after this update.' });
+  }
+  const t = s.tokens;
+  const prompt = t.input + t.cacheRead + t.cacheWrite;
+  const tile = (label, value, detail) => el('div', { class: 'kpi kpi--flat' }, [el('span', { class: 'l', text: label }), el('span', { class: 'v', text: value }), el('span', { class: 'd', text: detail })]);
+  const tiles = el('div', { class: 'kpis' }, [
+    tile('Total', usd(s.cost), `${usd(s.cost / d.days)} a day on average`),
+    tile('Per answer', s.answered ? usd((s.byPurpose.filter((p) => p.key !== 'welcome').reduce((a, p) => a + p.cost, 0)) / s.answered) : '—', `answer + search rewrite, over ${fmtN(s.answered)} answered`),
+    tile('Claude calls', fmtN(s.calls), `${fmtTok(prompt)} tokens in · ${fmtTok(t.output)} out`),
+    tile('Read from cache', pct(t.cacheRead, prompt), 'of input tokens, billed at a fraction of the price'),
+  ]);
+  const chart = dayBars(d.days, s.byDay.map((x) => [x.day, x.cost]), {
+    label: `Claude spend per day over the last ${d.days} days`, head: 'Spend', fmt: usd, tip: usd,
+    tickFmt: (v) => `$${+v.toFixed(3)}`, minMax: 0.05,
+  });
+  const breakdown = (head, rows, name) => dataTable(
+    [[head], ['Calls', 'num'], ['Output tokens', 'num'], ['Spend', 'num'], ['Share', 'num']],
+    rows.map((r) => el('tr', {}, [
+      el('td', { text: name(r.key) }),
+      el('td', { class: 'num', text: fmtN(r.calls) }),
+      el('td', { class: 'num', text: fmtTok(r.output) }),
+      el('td', { class: 'num', text: usd(r.cost) }),
+      el('td', { class: 'num', text: pct(r.cost, s.cost) }),
+    ])),
+    'Nothing yet.',
+  );
+  const notes = [
+    s.unpriced ? `${fmtN(s.unpriced)} call${s.unpriced === 1 ? '' : 's'} on a model without a known price ${s.unpriced === 1 ? 'is' : 'are'} counted as $0.` : null,
+    s.since ? `Tracked since ${fmtWhen(s.since)}.` : null,
+  ].filter(Boolean).join(' ');
+  return el('div', { class: 'spend' }, [
+    tiles,
+    chart,
+    el('div', { class: 'grid-2' }, [
+      el('div', {}, [el('h3', { text: 'By kind of call' }), breakdown('Call', s.byPurpose, (k) => PURPOSE[k] || k)]),
+      el('div', {}, [el('h3', { text: 'By model' }), breakdown('Model', s.byModel, (k) => k)]),
+    ]),
+    notes ? el('p', { class: 'hint small', text: notes }) : null,
+  ]);
 }
 
 // ---------------------------------------------------------------- tables

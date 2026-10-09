@@ -1,4 +1,4 @@
-// Covers: The database: profiles, question history, peer suggestions, pushed content, admin insights and feedback.
+// Covers: The database: profiles, question history, peer suggestions, pushed content, admin insights, feedback and Claude spend.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openStore, normalizeQuestion } from '../server/store.mjs';
@@ -120,4 +120,32 @@ test('most asked questions carry their share of all questions', () => {
   assert.equal(top[0].count, 3);
   assert.equal(top[0].share, 0.75);
   assert.equal(top[1].share, 0.25);
+});
+
+test('Claude spend: priced per call, cache reads cheap, fallback attempts at their own rates', () => {
+  const s = fixture();
+  s.addTurn({ userId: 'me', conversationId: 'c1', at: ago(1), question: 'q', mode: 'claude' });
+  // Opus 5: $5 in, $25 out, $0.50 cache read per million.
+  s.addLlmCall({ userId: 'me', at: ago(1), purpose: 'answer', model: 'claude-opus-5', usage: { input_tokens: 1_000_000, output_tokens: 100_000, cache_read_input_tokens: 1_000_000 } });
+  s.addLlmCall({ userId: 'doc', at: ago(1), purpose: 'rewrite', model: 'claude-opus-5-20260101', usage: { input_tokens: 200_000, output_tokens: 0 } });
+  // A Fable decline rescued by Opus 4.8: every attempt in usage.iterations is billed.
+  s.addLlmCall({ at: ago(1), purpose: 'answer', model: 'claude-opus-4-8', usage: { input_tokens: 1, output_tokens: 1, iterations: [
+    { type: 'message', model: 'claude-fable-5-1', input_tokens: 100_000, output_tokens: 0 },
+    { type: 'fallback_message', model: 'claude-opus-4-8', input_tokens: 100_000, output_tokens: 0 },
+  ] } });
+  s.addLlmCall({ at: ago(1), purpose: 'welcome', model: 'not-a-model', usage: { input_tokens: 5 } });
+  s.addLlmCall({ at: ago(40), purpose: 'answer', model: 'claude-opus-5', usage: { input_tokens: 1_000_000 } });
+
+  const sp = s.insights({ days: 7 }).spend;
+  assert.equal(sp.calls, 4);
+  assert.equal(sp.unpriced, 1);
+  assert.equal(sp.answered, 1);
+  assert.ok(Math.abs(sp.cost - (5 + 2.5 + 0.5 + 1 + 1 + 0.5)) < 1e-9);
+  assert.equal(sp.byPurpose[0].key, 'answer');
+  assert.equal(sp.tokens.cacheRead, 1_000_000);
+  // The role filter applies to spend too.
+  assert.ok(Math.abs(s.insights({ days: 7, role: 'physician' }).spend.cost - 1) < 1e-9);
+  s.addLlmCall({ at: ago(1), purpose: 'answer', model: 'claude-opus-5', usage: {}, demo: true });
+  s.clearDemo();
+  assert.equal(s.insights({ days: 7 }).spend.calls, 4);
 });

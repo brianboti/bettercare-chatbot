@@ -174,7 +174,7 @@ export async function welcome(store, user, deps) {
   let result = null;
   if (llmAvailable() && candidates.length) {
     const content = `<person>\n${describePerson(store, user)}\n</person>\n\n<candidates>\n${candidates.map((c) => JSON.stringify({ id: c.id, source: c.source, title: c.title, detail: c.detail, default_prompt: c.prompt })).join('\n')}\n</candidates>`;
-    try { result = await generateJson(WELCOME_SYSTEM, content, WELCOME_SCHEMA); } catch (e) { console.warn('welcome generation failed:', e.message); }
+    try { result = await generateJson(WELCOME_SYSTEM, content, WELCOME_SCHEMA, { purpose: 'welcome', userId: user.id }); } catch (e) { console.warn('welcome generation failed:', e.message); }
   }
   if (!result?.cards?.length) result = plainWelcome(user, candidates);
 

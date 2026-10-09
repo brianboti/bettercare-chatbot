@@ -13,7 +13,7 @@ review with UT Health IT; nothing is provisioned yet).
 | 1 | Site export | Files on disk (`data/site/`) | Read-only copy of BetterCare: 239 pages, 53 lists, ~3,600 library files, rendered page snapshots | 5.7 GB (files 5.2 GB, snapshots 568 MB) | Site content only |
 | 2 | Search corpus | JSON (`data/index/chunks.json`) | 6,629 passages with title, heading, URL, dates | 9 MB | No |
 | 3 | Embeddings | JSON (`data/embeddings.json`) | One 384-number vector per passage (`bge-small-en-v1.5`) | 21 MB | No |
-| 4 | App database | SQLite (`data/sophia.db`) | `users` (name, role, department), `turns` (every question, answer, sources, topics, feedback), `events` (clicks), `promotions` (content Clinical IT pushes) | 3 MB | **Yes**: names + questions |
+| 4 | App database | SQLite (`data/sophia.db`) | `users` (name, role, department), `turns` (every question, answer, sources, topics, feedback), `events` (clicks), `promotions` (content Clinical IT pushes), `llm_calls` (tokens and estimated cost of every Claude call) | 3 MB | **Yes**: names + questions |
 | 5 | Chat log | JSON lines (`data/logs/chat.jsonl`) | Per-turn diagnostics: question, rewrite, retrieved ids, scores, model, tokens, latency | < 1 MB | Yes: questions |
 | — | In memory | Node process | Keyword (BM25) index and vectors, rebuilt at startup from 2 and 3 | ~100 MB RAM | No |
 | — | Browser | sessionStorage / localStorage | The open conversation; the demo user id | KB | Yes (on the user's machine) |
@@ -73,7 +73,7 @@ flowchart LR
       NAT["Cloud NAT<br/>static egress IP"]
     end
     subgraph S4["4 · Data (private IP only)"]
-      SQL[("Cloud SQL PostgreSQL<br/>users · turns · events · promotions<br/>+ passages/vectors (pgvector)")]
+      SQL[("Cloud SQL PostgreSQL<br/>users · turns · events · promotions · llm_calls<br/>+ passages/vectors (pgvector)")]
       GCS[("Cloud Storage<br/>site copy 5.7 GB · snapshots")]
       SM["Secret Manager"]
     end

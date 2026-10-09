@@ -109,6 +109,10 @@ main { padding: 20px 24px 8px; max-width: 1320px; margin: 0 auto; display: grid;
 .kpi .l { color: var(--ink-2); font-size: 13px; }
 .kpi .v { font-size: 28px; font-weight: 600; line-height: 1.15; }
 .kpi .d { color: var(--ink-3); font-size: 12px; }
+/* Tiles inside a card: no second border. */
+.kpi--flat { background: none; border: 0; padding: 0; }
+.spend { display: grid; gap: 16px; min-width: 0; }
+.spend h3 { font-size: 13px; color: var(--ink-2); font-weight: 600; margin: 0 0 6px; }
 
 /* ------------------------------------------------------------ charts */
 .chart { position: relative; width: 100%; }

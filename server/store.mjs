@@ -1,5 +1,5 @@
-// Per-user state: profiles, question history, feedback, usage events, and the
-// content the org wants to push. SQLite (node:sqlite, built into Node), one
+// Per-user state: profiles, question history, feedback, usage events, Claude
+// spend, and the content the org wants to push. SQLite (node:sqlite, built into Node), one
 // file at data/sophia.db.
 //
 // Everything here is synchronous and small; the chat path does one insert
@@ -9,6 +9,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { costOfResponse } from './pricing.mjs';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -72,6 +73,20 @@ CREATE TABLE IF NOT EXISTS promotions (
   created_by TEXT,
   demo INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS llm_calls (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL,
+  user_id TEXT,
+  purpose TEXT NOT NULL,
+  model TEXT,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_usd REAL,
+  demo INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS llm_calls_at ON llm_calls(at);
 `;
 
 const j = (s, d) => { try { return s == null ? d : JSON.parse(s); } catch { return d; } };
@@ -213,6 +228,16 @@ export function openStore(file) {
   const promotionsActedOn = (userId) => new Set(q(`SELECT DISTINCT ref FROM events WHERE user_id = ? AND type IN ('promo_click','promo_dismiss')`)
     .all(userId).map((r) => Number(r.ref)));
 
+  // -------------------------------------------------------------- Claude spend
+
+  /** One Claude API call: { purpose, model, usage, userId? }. Cost is priced at write time. */
+  function addLlmCall(c) {
+    const { cost, tokens } = costOfResponse(c.model, c.usage);
+    q(`INSERT INTO llm_calls (at, user_id, purpose, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, demo)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`)
+      .run(c.at || now(), c.userId ?? null, c.purpose, c.model ?? null, tokens.input, tokens.output, tokens.cacheRead, tokens.cacheWrite, cost, c.demo ? 1 : 0);
+  }
+
   // -------------------------------------------------------------- promotions
 
   const promoRow = (r) => r && ({
@@ -329,6 +354,26 @@ export function openStore(file) {
       qs.set(k, g);
     }
 
+    const calls = q(`SELECT c.*, u.role FROM llm_calls c LEFT JOIN users u ON u.id = c.user_id WHERE c.at >= ? ${roleSql}`).all(...args);
+    const spend = {
+      cost: 0, calls: calls.length, unpriced: 0,
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      byDay: new Map(), byPurpose: new Map(), byModel: new Map(),
+    };
+    const add = (m, key, c) => { const g = m.get(key) || { key, calls: 0, cost: 0, output: 0 }; g.calls++; g.cost += c.cost_usd || 0; g.output += c.output_tokens; m.set(key, g); };
+    for (const c of calls) {
+      if (c.cost_usd == null) spend.unpriced++;
+      spend.cost += c.cost_usd || 0;
+      spend.tokens.input += c.input_tokens; spend.tokens.output += c.output_tokens;
+      spend.tokens.cacheRead += c.cache_read_tokens; spend.tokens.cacheWrite += c.cache_write_tokens;
+      const d = c.at.slice(0, 10);
+      spend.byDay.set(d, (spend.byDay.get(d) || 0) + (c.cost_usd || 0));
+      add(spend.byPurpose, c.purpose, c);
+      add(spend.byModel, c.model || 'unknown', c);
+    }
+    const sorted = (m) => [...m.values()].sort((a, b) => b.cost - a.cost);
+    const spendSince = q('SELECT MIN(at) AS at FROM llm_calls').get()?.at || null;
+
     const promos = listPromotions().map((p) => {
       const ev = events.filter((e) => Number(e.ref) === p.id);
       return { ...p, shown: ev.filter((e) => e.type === 'promo_shown').length, clicked: ev.filter((e) => e.type === 'promo_click').length, linkOpens: ev.filter((e) => e.type === 'promo_link_click').length };
@@ -350,17 +395,26 @@ export function openStore(file) {
       opened: [...opened.values()].sort((a, b) => b.count - a.count).slice(0, 12),
       recent: turns.slice(-40).reverse().map((t) => ({ id: t.id, at: t.at, role: t.role, question: t.question, topics: j(t.topics, []), feedback: t.feedback, note: t.feedback_note, lowConfidence: !!t.low_confidence })),
       promotions: promos,
+      spend: {
+        ...spend,
+        // Claude-answered questions since spend tracking began, for cost per answer.
+        answered: turns.filter((t) => t.mode === 'claude' && !t.error && spendSince && t.at >= spendSince).length,
+        since: spendSince,
+        byDay: [...spend.byDay].map(([day, cost]) => ({ day, cost })),
+        byPurpose: sorted(spend.byPurpose),
+        byModel: sorted(spend.byModel),
+      },
     };
   }
 
   function clearDemo() {
-    for (const t of ['turns', 'events', 'promotions', 'users']) db.exec(`DELETE FROM ${t} WHERE demo = 1`);
+    for (const t of ['turns', 'events', 'promotions', 'llm_calls', 'users']) db.exec(`DELETE FROM ${t} WHERE demo = 1`);
   }
 
   return {
     db, getUser, saveUser, touchUser, listUsers,
     addTurn, getTurn, recentTurns, conversations, conversation, userTopics, peerQuestions, setFeedback,
-    addEvent, promotionsActedOn, listPromotions, savePromotion, promotionsFor, insights, clearDemo,
+    addEvent, addLlmCall, promotionsActedOn, listPromotions, savePromotion, promotionsFor, insights, clearDemo,
     close: () => db.close(),
   };
 }
