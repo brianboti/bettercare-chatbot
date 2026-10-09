@@ -17,6 +17,8 @@ Changes to docs or tests alone don't need a release.
 
 ## Unreleased
 
+## [2.7.0] — 2026-10-09
+
 ### Added
 - OpenAI as a backup provider: when Claude can't be reached (no credit, bad
   key, outage, overload), the search rewrite, welcome cards and answers run on
