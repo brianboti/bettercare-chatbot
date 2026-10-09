@@ -877,4 +877,7 @@ function caseRow(suite, group, c) {
   ]);
 }
 
+// Which release this is, from the server.
+fetch('/api/health').then((r) => r.json()).then((h) => { if (h.version) document.getElementById('version').textContent = `Sophia v${h.version}`; }).catch(() => {});
+
 route();

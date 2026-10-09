@@ -306,6 +306,7 @@ td.share { white-space: nowrap; }
 .tip b { font-weight: 600; }
 
 .foot { max-width: 1320px; margin: 0 auto; padding: 8px 24px 28px; color: var(--ink-3); font-size: 12px; }
+.foot .ver:not(:empty)::before { content: ' · '; }
 
 @media (prefers-reduced-motion: no-preference) {
   .hbar .fill, .chart .bar { transition: fill .12s ease, background .12s ease; }

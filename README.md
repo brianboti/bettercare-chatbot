@@ -214,6 +214,24 @@ The replica is the target experience. To ship it:
    Several libraries and pages have unique permissions; resolve that (spec
    §4 P1, D2) before exposing the assistant beyond the site's owners.
 
+## Versions
+
+Sophia is versioned `MAJOR.MINOR.PATCH`: **major** for architectural changes
+(a new service or data store, a new way of signing in or deploying),
+**minor** for new features, **patch** for bug fixes and small tweaks. Every
+change is noted under **Unreleased** in [`CHANGELOG.md`](CHANGELOG.md) as
+it's made; then
+
+```bash
+npm run release -- patch      # or minor / major
+git push lab main --follow-tags
+```
+
+bumps `package.json` and the extension manifest, dates the changelog
+section, commits, and tags `vX.Y.Z`. The running version shows in the admin
+panel's footer, in `/api/health`, at server start and in every line of
+`data/logs/chat.jsonl`.
+
 ## Layout
 
 | Path | Purpose |

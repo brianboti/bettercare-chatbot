@@ -3,7 +3,7 @@
 //
 //   npm start            (node --env-file-if-exists=.env server/index.mjs)
 //
-//   GET  /api/health     mode, model, corpus size
+//   GET  /api/health     version, mode, model, corpus size
 //   GET  /api/search     hybrid retrieval, no LLM   ?q=...&k=10
 //   POST /api/chat       SSE answer stream           { messages: [{role, content}], conversationId? }
 //   GET  /api/me         the signed-in user (X-Sophia-User header)   POST: save profile
@@ -26,6 +26,7 @@ import { buildRetriever } from './retriever.mjs';
 import { runChat, parseMessages, sourceView, ChatError } from './chat.mjs';
 import { llmAvailable, onUsage } from './llm.mjs';
 import { PROMPT_VERSION } from './prompt.mjs';
+import { VERSION } from './version.mjs';
 import { openStore } from './store.mjs';
 import { welcome } from './personalize.mjs';
 import { ROLES } from './topics.mjs';
@@ -141,6 +142,7 @@ const server = createServer(async (req, res) => {
     if (url.pathname === '/api/health') {
       return json(res, 200, {
         ok: true,
+        version: VERSION,
         mode: llmAvailable() ? 'claude' : 'retrieval-only',
         model: llmAvailable() ? config.ANTHROPIC_MODEL : null,
         chunks: chunks.length,
@@ -305,7 +307,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(config.PORT, config.HOST, () => {
-  console.log(`\nSophia assistant  http://${config.HOST === '127.0.0.1' ? 'localhost' : config.HOST}:${config.PORT}`);
+  console.log(`\nSophia ${VERSION}  http://${config.HOST === '127.0.0.1' ? 'localhost' : config.HOST}:${config.PORT}`);
   console.log(`  mode: ${llmAvailable() ? `claude (${config.ANTHROPIC_MODEL}, effort ${config.ANTHROPIC_EFFORT}; rewrite ${config.REWRITE_MODEL})` : 'retrieval-only (no ANTHROPIC_API_KEY)'}`);
   console.log(`  corpus: ${chunks.length} chunks from ${new Set(chunks.map((c) => c.sourceId)).size} sources`);
 });

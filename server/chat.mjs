@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 import { config } from './config.mjs';
 import { ROOT } from './corpus.mjs';
 import { PROMPT_VERSION, buildUserTurn } from './prompt.mjs';
+import { VERSION } from './version.mjs';
 import { llmAvailable, rewriteQuery, streamAnswer, Anthropic } from './llm.mjs';
 import { SuggestionSplitter } from './followups.mjs';
 import { tagTopics } from './topics.mjs';
@@ -75,7 +76,7 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
   const question = messages[messages.length - 1].content;
   const history = messages.slice(0, -1);
   const useLlm = llmAvailable();
-  const log = { at: new Date().toISOString(), question, promptVersion: PROMPT_VERSION, user: user?.id || null };
+  const log = { at: new Date().toISOString(), version: VERSION, question, promptVersion: PROMPT_VERSION, user: user?.id || null };
   const person = user && store ? describePerson(store, user) : '';
   const turn = { question, topics: [], intent: null, answer: '', sources: [], suggestions: null };
   let saved = null;
