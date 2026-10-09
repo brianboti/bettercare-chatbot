@@ -104,7 +104,8 @@ export function startRun(key) {
   const run = { status: 'running', startedAt: new Date().toISOString(), finishedAt: null, progress: { done: 0 }, summary: null, metrics: [], groups: [], log: '' };
   runs.set(key, run);
 
-  const child = spawn(process.execPath, ['--env-file-if-exists=.env', ...suite.args()], { cwd: ROOT, env: process.env });
+  // BACKUP_DISABLED: an eval measures the configured Claude models, never a silent switch to the backup.
+  const child = spawn(process.execPath, ['--env-file-if-exists=.env', ...suite.args()], { cwd: ROOT, env: { ...process.env, BACKUP_DISABLED: '1' } });
   const unitLines = [];
   let out = '', err = '', result = null;
   const timer = setTimeout(() => child.kill('SIGTERM'), TIMEOUT_MS);

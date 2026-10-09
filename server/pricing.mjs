@@ -1,6 +1,7 @@
-// What a Claude call cost, from its usage block. First-party Claude API list
-// prices in USD per million tokens (checked 2026-10-09); Bedrock and Vertex
-// bill differently. Estimates for the dashboard, not an invoice.
+// What an LLM call cost, from its usage block. First-party Claude API and
+// OpenAI API list prices in USD per million tokens (checked 2026-10-09);
+// Bedrock and Vertex bill differently. Estimates for the dashboard, not an
+// invoice. OpenAI has no cache-write charge, so its write columns repeat input.
 
 const PRICES = {
   //                      input  output  5m write  1h write  cache read
@@ -15,11 +16,16 @@ const PRICES = {
   'claude-sonnet-5':    [2,     10,     2.5,      4,        0.2],
   'claude-sonnet-4-6':  [3,     15,     3.75,     6,        0.3],
   'claude-haiku-4-5':   [1,     5,      1.25,     2,        0.1],
+  'gpt-5.5':            [5,     30,     5,        5,        0.5],
+  'gpt-5.4':            [2.5,   15,     2.5,      2.5,      0.25],
+  'gpt-5.4-mini':       [0.75,  4.5,    0.75,     0.75,     0.075],
+  'gpt-5.4-nano':       [0.2,   1.25,   0.2,      0.2,      0.02],
+  'gpt-5-mini':         [0.25,  2,      0.25,     0.25,     0.025],
 };
 
 /** Price row for a model id, tolerating date suffixes and platform prefixes. */
 export function priceFor(model) {
-  const id = String(model || '').replace(/^(us\.|eu\.|global\.)?anthropic\./, '').replace(/[@-]\d{8}$/, '');
+  const id = String(model || '').replace(/^(us\.|eu\.|global\.)?anthropic\./, '').replace(/[@-]\d{8}$|-\d{4}-\d{2}-\d{2}$/, '');
   return PRICES[id] || null;
 }
 

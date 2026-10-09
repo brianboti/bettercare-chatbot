@@ -36,6 +36,14 @@ export const config = Object.freeze({
     return e;
   })(),
   MAX_TOKENS: int('MAX_TOKENS', 8192),
+
+  // Backup provider: when Claude can't be reached (no credit, bad key,
+  // outage), the same job runs on OpenAI. Needs OPENAI_API_KEY. LLM_PRIMARY
+  // =openai makes OpenAI answer first (to test it, or if Claude is gone).
+  OPENAI_MODEL: env.OPENAI_MODEL || 'gpt-5.5',
+  OPENAI_QUICK_MODEL: env.OPENAI_QUICK_MODEL || 'gpt-5.4-mini',
+  BACKUP_ENABLED: env.BACKUP_DISABLED !== '1',
+  LLM_PRIMARY: env.LLM_PRIMARY === 'openai' ? 'openai' : 'claude',
   // Server-side refusal fallback (Claude API only). Set to 0 on Bedrock/Vertex/Foundry.
   REFUSAL_FALLBACK: env.REFUSAL_FALLBACK !== '0',
 

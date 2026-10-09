@@ -28,6 +28,7 @@ Two front ends share one backend:
 ```sh
 npm install
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env      # optional; without it: retrieval-only mode
+echo "OPENAI_API_KEY=sk-..." >> .env          # optional backup when Claude can't be reached
 npm run ingest                                  # data/site -> data/index/chunks.json
 npm start                                       # http://localhost:8787
 ```

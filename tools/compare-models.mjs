@@ -5,7 +5,9 @@
 //   node --env-file-if-exists=.env tools/compare-models.mjs
 //     --rewrite claude-haiku-4-5    candidate for the search rewrite
 //     --answer claude-sonnet-5-5    candidate for answers
-//     --n 30                        answers to compare
+//     --n 10                        answers to compare
+//     --q 30                        questions for the rewrite comparison
+//     --budget 1.50                 stop (progress saved) once the run has spent this many dollars
 //     --only rewrite|answer         run one part
 //     --fresh                       ignore saved progress and start over
 //
@@ -44,21 +46,25 @@ const arg = (name, dflt) => { const i = process.argv.indexOf(`--${name}`); retur
 const ONLY = arg('only', null);
 const REWRITE = { base: config.REWRITE_MODEL, cand: arg('rewrite', 'claude-haiku-4-5') };
 const ANSWER = { base: config.ANTHROPIC_MODEL, cand: arg('answer', 'claude-sonnet-5-5') };
-const N = Number(arg('n', 30));
+const N = Number(arg('n', 10));
+const Q = Number(arg('q', 30));
+const BUDGET = Number(arg('budget', 1.5));
+class OverBudget extends Error {}
 const JUDGE = 'claude-opus-5-5';
 
 // Saved progress, keyed by the models compared so a different pairing starts over.
 const PROGRESS = resolve(ROOT, 'data/eval/models-progress.json');
 const runKey = JSON.stringify([REWRITE, ANSWER, N]);
-let progress = { key: runKey, rewrite: null, answers: {} };
+let progress = { key: runKey, rewrite: null, answers: {}, spent: 0 };
+let priorSpent = 0;
 if (!process.argv.includes('--fresh') && existsSync(PROGRESS)) {
   const saved = JSON.parse(readFileSync(PROGRESS, 'utf8'));
-  if (saved.key === runKey) { progress = saved; console.log(`resuming: ${progress.rewrite ? 'rewrites done, ' : ''}${Object.keys(progress.answers).length} answers done`); }
+  if (saved.key === runKey) { progress = saved; priorSpent = saved.spent || 0; console.log(`resuming: ${progress.rewrite ? 'rewrites done, ' : ''}${Object.keys(progress.answers).length} answers done`); }
 }
-const saveProgress = () => { mkdirSync(dirname(PROGRESS), { recursive: true }); writeFileSync(PROGRESS, JSON.stringify(progress)); };
+const saveProgress = () => { mkdirSync(dirname(PROGRESS), { recursive: true }); writeFileSync(PROGRESS, JSON.stringify({ ...progress, spent: spentNow() })); };
 
 // Out of credit or bad key: stop now instead of failing every remaining call.
-const fatal = (e) => e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError || /credit balance/i.test(e?.message || '');
+const fatal = (e) => e instanceof OverBudget || e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError || /credit balance/i.test(e?.message || '');
 
 if (!llmAvailable()) { console.error('Needs ANTHROPIC_API_KEY in .env.'); process.exit(2); }
 
@@ -71,6 +77,9 @@ const track = (purpose, model, usage) => {
   spend.set(k, s);
 };
 onUsage((c) => track(c.purpose, c.model, c.usage));
+const spentNow = () => [...spend.values()].reduce((a, x) => a + x.cost, 0) + priorSpent;
+// Checked before each question, so a run stops between questions, never mid-way.
+const checkBudget = () => { if (spentNow() > BUDGET) throw new OverBudget(`spent $${spentNow().toFixed(2)}, over the $${BUDGET.toFixed(2)} budget`); };
 
 const retriever = await buildRetriever(loadChunks(), { log: () => {} });
 const facts = retriever.facts.describe();
@@ -116,6 +125,23 @@ function questionSet() {
   return items;
 }
 
+/**
+ * A small, balanced slice for the rewrite comparison: search-eval questions
+ * (with known right answers), a few unrelated ones and in-scope controls,
+ * follow-ups, and real questions.
+ */
+function rewriteSlice(items) {
+  const pick = (f, n) => sample(items.filter(f), n);
+  const n = (share) => Math.max(1, Math.round(Q * share));
+  return [
+    ...pick((it) => it.expect, n(0.45)),
+    ...pick((it) => it.expect === null || it.group === 'Unrelated' || it.group === 'Medical, not on the site', n(0.12)),
+    ...pick((it) => it.control, n(0.1)),
+    ...pick((it) => it.source === 'follow-up', n(0.2)),
+    ...pick((it) => it.source === 'asked', n(0.13)),
+  ];
+}
+
 // ---------------------------------------------------------------- 1. rewrite
 
 /** What the chat would search for and get back, for one rewrite. */
@@ -131,6 +157,7 @@ const matches = (c, e) => (e.startsWith('text:') ? c.text.toLowerCase().includes
 async function compareRewrites(items) {
   console.log(`\n1. Search rewrite: ${REWRITE.base} vs ${REWRITE.cand} on ${items.length} questions`);
   return pool(items, 4, async (it, i) => {
+    checkBudget();
     const out = { ...it };
     for (const arm of ['base', 'cand']) {
       const t0 = Date.now();
@@ -252,9 +279,11 @@ async function compareAnswers(pool_) {
   return pool(pool_, 3, async (it, i) => {
     const key = `${it.history.map((m) => m.content).join('|')}|${it.q}`;
     if (progress.answers[key]) return progress.answers[key];
+    checkBudget();
     // One retrieval for both models (with the candidate rewrite, as it would run).
     const r = it.cand || await rewriteQuery(it.history, it.q, facts, '', { model: REWRITE.cand });
     const found = await searchFor(it, r);
+    if (isOutOfScope(r.intent, found.lowConfidence)) return { q: it.q, history: it.history, skipped: 'unrelated to the site' };
     const { results, older } = orderByRecency(found.results, { windowDays: config.RECENT_WINDOW_DAYS });
     const turn = buildUserTurn(it.q, results, { lowConfidence: found.lowConfidence, today, facts, broad: found.broad, intent: r.intent, older });
     const messages = [...it.history, { role: 'user', content: turn }];
@@ -278,7 +307,8 @@ async function compareAnswers(pool_) {
   });
 }
 
-function answerSummary(rows) {
+function answerSummary(all) {
+  const rows = all.filter((r) => !r.skipped);
   const arm = (k) => {
     const ok = rows.filter((r) => !r[k].error);
     return {
@@ -302,16 +332,19 @@ const items = questionSet();
 let rewrite = null, answers = null;
 try {
 if (ONLY !== 'answer') {
-  rewrite = progress.rewrite || await compareRewrites(items);
+  rewrite = progress.rewrite || await compareRewrites(rewriteSlice(items));
   progress.rewrite = rewrite;
   saveProgress();
 }
 
 if (ONLY !== 'rewrite') {
-  // Real, in-scope questions (as the current rewrite classifies them), plus follow-ups.
-  const rows = rewrite || items.map((it) => ({ ...it }));
-  const real = rows.filter((r) => r.source === 'asked' && !(r.base?.outOfScope || r.cand?.outOfScope));
-  const picked = [...sample(real, Math.max(0, N - 5)), ...sample(rows.filter((r) => r.source === 'follow-up'), 5)];
+  // Real questions people asked (skipping ones the rewrite comparison found unrelated), plus follow-ups.
+  const rows = rewrite || [];
+  const unrelated = new Set(rows.filter((r) => r.base.outOfScope || r.cand.outOfScope).map((r) => r.q));
+  const real = items.filter((r) => r.source === 'asked' && !unrelated.has(r.q));
+  const nFollow = Math.min(3, Math.floor(N / 3));
+  const picked = [...sample(real, N - nFollow), ...sample(items.filter((r) => r.source === 'follow-up'), nFollow)]
+    .map((it) => rows.find((r) => r.q === it.q && r.history.length === it.history.length) || it);
   answers = await compareAnswers(picked);
 }
 } catch (e) {
@@ -368,7 +401,7 @@ if (answers) {
     `| Average length | ${Math.round(s.base.avgChars)} chars | ${Math.round(s.cand.avgChars)} chars |`,
     `| Median time to finish | ${s.base.medianMs} ms | ${s.cand.medianMs} ms |`,
     '', '### Every question', '');
-  for (const r of answers) {
+  for (const r of answers.filter((x) => !x.skipped)) {
     md.push(`#### ${r.history.length ? `(follow-up to "${r.history[0].content}") ` : ''}${r.q}`, '',
       `Winner: **${r.winner === 'base' ? s.base.model : r.winner === 'cand' ? s.cand.model : 'tie'}** · ${r.verdicts.map((v) => v?.reason).filter(Boolean).join(' / ')}`, '',
       `**${s.base.model}:** ${r.base.text || r.base.error}`, '', `**${s.cand.model}:** ${r.cand.text || r.cand.error}`, '');

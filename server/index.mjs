@@ -24,7 +24,7 @@ import { config } from './config.mjs';
 import { ROOT, loadChunks } from './corpus.mjs';
 import { buildRetriever } from './retriever.mjs';
 import { runChat, parseMessages, sourceView, ChatError } from './chat.mjs';
-import { llmAvailable, onUsage } from './llm.mjs';
+import { llmAvailable, onUsage, providers } from './llm.mjs';
 import { PROMPT_VERSION } from './prompt.mjs';
 import { VERSION } from './version.mjs';
 import { openStore } from './store.mjs';
@@ -145,6 +145,7 @@ const server = createServer(async (req, res) => {
         version: VERSION,
         mode: llmAvailable() ? 'claude' : 'retrieval-only',
         model: llmAvailable() ? config.ANTHROPIC_MODEL : null,
+        providers: providers(),
         chunks: chunks.length,
         sources: new Set(chunks.map((c) => c.sourceId)).size,
         promptVersion: PROMPT_VERSION,
@@ -308,6 +309,10 @@ const server = createServer(async (req, res) => {
 
 server.listen(config.PORT, config.HOST, () => {
   console.log(`\nSophia ${VERSION}  http://${config.HOST === '127.0.0.1' ? 'localhost' : config.HOST}:${config.PORT}`);
-  console.log(`  mode: ${llmAvailable() ? `claude (${config.ANTHROPIC_MODEL}, effort ${config.ANTHROPIC_EFFORT}; rewrite ${config.REWRITE_MODEL})` : 'retrieval-only (no ANTHROPIC_API_KEY)'}`);
+  const p = providers();
+  console.log(`  mode: ${!llmAvailable() ? 'retrieval-only (no ANTHROPIC_API_KEY or OPENAI_API_KEY)'
+    : p.primary === 'openai' ? `openai (${config.OPENAI_MODEL}; rewrite ${config.OPENAI_QUICK_MODEL})`
+    : `claude (${config.ANTHROPIC_MODEL}, effort ${config.ANTHROPIC_EFFORT}; rewrite ${config.REWRITE_MODEL})`}`);
+  console.log(`  backup: ${p.backup ? `openai (${config.OPENAI_MODEL}) when Claude can't be reached` : 'none'}`);
   console.log(`  corpus: ${chunks.length} chunks from ${new Set(chunks.map((c) => c.sourceId)).size} sources`);
 });

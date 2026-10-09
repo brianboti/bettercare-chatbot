@@ -1,7 +1,9 @@
-// Claude calls: query rewrite and streamed answers.
+// LLM calls: query rewrite, welcome cards and streamed answers. Claude first;
+// OpenAI (server/openai.mjs) takes over when Claude can't be reached.
 
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from './config.mjs';
+import { openaiConfigured, openaiJson, openaiStream } from './openai.mjs';
 import { SYSTEM, REWRITE_SYSTEM, rewriteSchema } from './prompt.mjs';
 import { TOPIC_NAMES, cleanTopics } from './topics.mjs';
 
@@ -15,10 +17,56 @@ function report(purpose, res, meta = {}) {
   try { usageSink?.({ purpose, model: res.model, usage: res.usage, userId: meta.userId ?? null }); } catch (e) { console.warn('could not record usage:', e.message); }
 }
 
-/** True when an API credential is available and the LLM isn't disabled. */
+const claudeConfigured = () => Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+const backupReady = () => config.BACKUP_ENABLED && openaiConfigured();
+
+/** True when some provider has a credential and the LLM isn't disabled. */
 export function llmAvailable() {
   if (!config.LLM_ENABLED) return false;
-  return Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+  return claudeConfigured() || openaiConfigured();
+}
+
+/** Which providers are set up, for /api/health and the startup line. */
+export function providers() {
+  return {
+    primary: config.LLM_PRIMARY === 'openai' && openaiConfigured() ? 'openai' : claudeConfigured() ? 'claude' : openaiConfigured() ? 'openai' : null,
+    backup: config.LLM_PRIMARY !== 'openai' && claudeConfigured() && backupReady() ? 'openai' : null,
+    claudeSkippedUntil: claudeDownUntil > Date.now() ? new Date(claudeDownUntil).toISOString() : null,
+  };
+}
+
+// ---------------------------------------------------------------- failover
+
+// After a billing or key failure Claude is skipped for a while, so every
+// question doesn't first wait on a call that will fail.
+let claudeDownUntil = 0;
+const COOLDOWN_MS = { account: 5 * 60_000, outage: 30_000 };
+
+/** Why this Claude error means "use the backup", or null if it doesn't. */
+export function failoverReason(e) {
+  if (e instanceof Anthropic.APIUserAbortError) return null;
+  if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) return 'account';
+  if (e instanceof Anthropic.BadRequestError && /credit balance/i.test(e.message)) return 'account';
+  if (e instanceof Anthropic.RateLimitError || e instanceof Anthropic.InternalServerError || e instanceof Anthropic.APIConnectionError) return 'outage';
+  if (e instanceof Anthropic.APIError && (e.status === 529 || e.status >= 500)) return 'outage';
+  return null;
+}
+
+/** Run a job on Claude, or on OpenAI when Claude is off, skipped, or fails over. */
+async function withBackup(job, claude, backup) {
+  const openaiFirst = config.LLM_PRIMARY === 'openai' && openaiConfigured();
+  if (openaiFirst || !claudeConfigured()) return backup();
+  if (!backupReady()) return claude();
+  if (Date.now() < claudeDownUntil) return backup();
+  try {
+    return await claude();
+  } catch (e) {
+    const reason = failoverReason(e);
+    if (!reason) throw e;
+    claudeDownUntil = Date.now() + COOLDOWN_MS[reason];
+    console.warn(`Claude unavailable for ${job} (${e.status || ''} ${e.message.slice(0, 120)}); using OpenAI`);
+    return backup();
+  }
 }
 
 function anthropic() {
@@ -56,25 +104,28 @@ export async function rewriteQuery(history, latest, facts = '', person = '', met
   const transcript = history.length
     ? history.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 1500)}`).join('\n')
     : '(no earlier messages)';
-  const model = meta.model || config.REWRITE_MODEL;
-  const res = await anthropic().beta.messages.create({
-    model,
-    max_tokens: 1024,
-    ...quick(model, { type: 'json_schema', schema: rewriteSchema(TOPIC_NAMES) }),
-    ...fallback(model),
-    system: REWRITE_SYSTEM,
-    messages: [{ role: 'user', content: `${facts ? `<site_facts>\n${facts}\n</site_facts>\n\n` : ''}${person ? `<person>\n${person}\n</person>\n\n` : ''}<conversation>\n${transcript}\n</conversation>\n\nLatest message: ${latest}` }],
+  const content = `${facts ? `<site_facts>\n${facts}\n</site_facts>\n\n` : ''}${person ? `<person>\n${person}\n</person>\n\n` : ''}<conversation>\n${transcript}\n</conversation>\n\nLatest message: ${latest}`;
+  const schema = rewriteSchema(TOPIC_NAMES);
+  const out = await withBackup('rewrite', async () => {
+    const model = meta.model || config.REWRITE_MODEL;
+    const res = await anthropic().beta.messages.create({
+      model,
+      max_tokens: 1024,
+      ...quick(model, { type: 'json_schema', schema }),
+      ...fallback(model),
+      system: REWRITE_SYSTEM,
+      messages: [{ role: 'user', content }],
+    });
+    report('rewrite', res, meta);
+    if (res.stop_reason === 'refusal') return null;
+    try { return JSON.parse(res.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim()); } catch { return null; }
+  }, async () => {
+    const r = await openaiJson(REWRITE_SYSTEM, content, schema, { name: 'search_query' });
+    report('rewrite', r, meta);
+    return r.json;
   });
-  report('rewrite', res, meta);
-  const fallbackResult = { query: latest, topics: [], intent: null };
-  if (res.stop_reason === 'refusal') return fallbackResult;
-  const text = res.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
-  try {
-    const out = JSON.parse(text);
-    return { query: String(out.query || latest).split('\n')[0].slice(0, 500), topics: cleanTopics(out.topics), intent: out.intent || null };
-  } catch {
-    return fallbackResult;
-  }
+  if (!out) return { query: latest, topics: [], intent: null };
+  return { query: String(out.query || latest).split('\n')[0].slice(0, 500), topics: cleanTopics(out.topics), intent: out.intent || null };
 }
 
 /**
@@ -82,17 +133,23 @@ export async function rewriteQuery(history, latest, facts = '', person = '', met
  * suggestion cards in Sophia's voice. `schema` constrains the output.
  */
 export async function generateJson(system, content, schema, { maxTokens = 1500, purpose = 'other', userId = null, model = config.ANTHROPIC_MODEL } = {}) {
-  const res = await anthropic().beta.messages.create({
-    model,
-    max_tokens: maxTokens,
-    ...quick(model, { type: 'json_schema', schema }),
-    ...fallback(model),
-    system,
-    messages: [{ role: 'user', content }],
+  return withBackup(purpose, async () => {
+    const res = await anthropic().beta.messages.create({
+      model,
+      max_tokens: maxTokens,
+      ...quick(model, { type: 'json_schema', schema }),
+      ...fallback(model),
+      system,
+      messages: [{ role: 'user', content }],
+    });
+    report(purpose, res, { userId });
+    if (res.stop_reason !== 'end_turn') return null;
+    try { return JSON.parse(res.content.filter((b) => b.type === 'text').map((b) => b.text).join('')); } catch { return null; }
+  }, async () => {
+    const r = await openaiJson(system, content, schema, { name: purpose });
+    report(purpose, r, { userId });
+    return r.json;
   });
-  report(purpose, res, { userId });
-  if (res.stop_reason !== 'end_turn') return null;
-  try { return JSON.parse(res.content.filter((b) => b.type === 'text').map((b) => b.text).join('')); } catch { return null; }
 }
 
 /**
@@ -102,25 +159,33 @@ export async function generateJson(system, content, schema, { maxTokens = 1500, 
  * @returns {Promise<{ stopReason: string, model: string, usage: object }>}
  */
 export async function streamAnswer(messages, { onText, onReset }, signal, meta = {}) {
-  const model = meta.model || config.ANTHROPIC_MODEL;
-  const stream = anthropic().beta.messages.stream({
-    model,
-    max_tokens: config.MAX_TOKENS,
-    thinking: { type: 'adaptive' },
-    output_config: { effort: config.ANTHROPIC_EFFORT },
-    ...fallback(model),
-    // The system prompt is identical on every request; cache it.
-    system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
-    messages,
-  }, { signal });
+  let shown = false;   // text already sent: a switch to the backup must clear it first
+  return withBackup('answer', async () => {
+    const model = meta.model || config.ANTHROPIC_MODEL;
+    const stream = anthropic().beta.messages.stream({
+      model,
+      max_tokens: config.MAX_TOKENS,
+      thinking: { type: 'adaptive' },
+      output_config: { effort: config.ANTHROPIC_EFFORT },
+      ...fallback(model),
+      // The system prompt is identical on every request; cache it.
+      system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
+      messages,
+    }, { signal });
 
-  for await (const event of stream) {
-    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') onText(event.delta.text);
-    else if (event.type === 'content_block_start' && event.content_block.type === 'fallback') onReset?.();
-  }
-  const final = await stream.finalMessage();
-  report('answer', final, meta);
-  return { stopReason: final.stop_reason, model: final.model, usage: final.usage, stopDetails: final.stop_details };
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') { shown = true; onText(event.delta.text); }
+      else if (event.type === 'content_block_start' && event.content_block.type === 'fallback') onReset?.();
+    }
+    const final = await stream.finalMessage();
+    report('answer', final, meta);
+    return { stopReason: final.stop_reason, model: final.model, usage: final.usage, stopDetails: final.stop_details };
+  }, async () => {
+    if (shown) onReset?.();
+    const out = await openaiStream(SYSTEM, messages, { onText }, signal);
+    report('answer', out, meta);
+    return out;
+  });
 }
 
 export { Anthropic };

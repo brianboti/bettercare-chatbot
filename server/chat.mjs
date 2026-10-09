@@ -10,6 +10,7 @@ import { ROOT } from './corpus.mjs';
 import { PROMPT_VERSION, buildUserTurn } from './prompt.mjs';
 import { VERSION } from './version.mjs';
 import { llmAvailable, rewriteQuery, streamAnswer, Anthropic } from './llm.mjs';
+import { OpenAI } from './openai.mjs';
 import { SuggestionSplitter } from './followups.mjs';
 import { tagTopics } from './topics.mjs';
 import { describePerson } from './personalize.mjs';
@@ -187,8 +188,8 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
     log.error = String(err?.message || err);
     turn.error = log.error.slice(0, 300);
     saveTurn();
-    const code = err instanceof Anthropic.RateLimitError ? 'RATE_LIMITED'
-      : err instanceof Anthropic.APIError ? 'UPSTREAM_LLM'
+    const code = err instanceof Anthropic.RateLimitError || err instanceof OpenAI.RateLimitError ? 'RATE_LIMITED'
+      : err instanceof Anthropic.APIError || err instanceof OpenAI.APIError || /^OpenAI:/.test(err?.message) ? 'UPSTREAM_LLM'
       : 'INTERNAL';
     send('error', { code, message: code === 'INTERNAL' ? 'Something went wrong on the server.' : 'The AI service had a problem. Please try again.' });
   } finally {

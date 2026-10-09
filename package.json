@@ -12,8 +12,8 @@
     "ingest": "node src/ingest/index.mjs",
     "export:receiver": "node tools/export-receiver.mjs",
     "eval": "node --env-file-if-exists=.env tools/eval-retrieval.mjs",
-    "eval:scope": "node --env-file-if-exists=.env tools/eval-scope.mjs",
-    "compare:models": "node --env-file-if-exists=.env tools/compare-models.mjs",
+    "eval:scope": "BACKUP_DISABLED=1 node --env-file-if-exists=.env tools/eval-scope.mjs",
+    "compare:models": "BACKUP_DISABLED=1 node --env-file-if-exists=.env tools/compare-models.mjs",
     "release": "node tools/release.mjs",
     "seed:demo": "node tools/seed-demo.mjs",
     "test": "node --test \"test/*.test.mjs\""
@@ -25,6 +25,7 @@
     "jszip": "^3.10.2",
     "linkedom": "^0.18.13",
     "mammoth": "^1.12.3",
+    "openai": "^7.31.0",
     "unpdf": "^1.8.1"
   },
   "allowScripts": {

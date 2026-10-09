@@ -17,6 +17,20 @@ Changes to docs or tests alone don't need a release.
 
 ## Unreleased
 
+### Added
+- OpenAI as a backup provider: when Claude can't be reached (no credit, bad
+  key, outage, overload), the search rewrite, welcome cards and answers run on
+  OpenAI (`gpt-5.5`, `gpt-5.4-mini` for the small jobs) with the same prompts.
+  After a billing or key failure Claude is skipped for 5 minutes. Needs
+  `OPENAI_API_KEY`; `LLM_PRIMARY=openai` makes OpenAI answer first.
+- The spend panel prices OpenAI calls; `/api/health` and the startup line
+  show the primary and backup providers.
+
+### Changed
+- `npm run compare:models` is cheaper by default (30 rewrite questions, 10
+  answers) and stops at a `--budget` (default $1.50). Evals and the model
+  comparison never switch to the backup.
+
 ## [2.6.0] — 2026-10-09
 
 ### Added
