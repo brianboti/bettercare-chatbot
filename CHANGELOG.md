@@ -17,6 +17,17 @@ Changes to docs or tests alone don't need a release.
 
 ## Unreleased
 
+### Changed
+- Admin panel follows the Sophia design spec (BetterCare theme): always a
+  white page with no dark mode, the spec's type ramp, 12px controls and 16px
+  cards with soft shadows, uppercase eyebrow labels, and a focus ring in the
+  primary orange. Secondary text is darker (5.2:1 contrast).
+- `docs/DESIGN.md`: every Sophia screen has a white background; the dark
+  palette is gone; BetterCare label3 is now `#6E6C6A` so all text passes 4.5:1.
+
+### Fixed
+- "1 errors" on the admin panel now reads "1 error".
+
 ## [2.7.0] — 2026-10-09
 
 ### Added

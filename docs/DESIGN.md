@@ -25,12 +25,16 @@ wording, accessibility) stays the same everywhere.
 ## 1. Principles
 
 1. **A clinical instrument.** Calm, precise, Apple-grade restraint. One deep-azure accent,
-   one teal "vitals" companion, and a lot of quiet pearl and white.
-2. **Evidence first.** Every answer shows where it came from, and says plainly whether
+   one teal "vitals" companion, on a white page.
+2. **Always a white background.** Every screen, in every product, sits on white
+   (`#FFFFFF`). There is no dark mode: Sophia stays light when the computer is set to
+   dark. Cards are told apart from the page by a 1px separator border and a soft shadow,
+   not by a tinted background.
+3. **Evidence first.** Every answer shows where it came from, and says plainly whether
    it was checked ("Evidence linked", "Unreviewed sources", "Unable to answer").
-3. **Color never speaks alone.** Every status has a word next to it.
-4. **Plain words, short answers.** No restating the question, no headings in answers.
-5. **One system, many homes.** Tokens are semantic (`primary`, `label2`, `danger`), never
+4. **Color never speaks alone.** Every status has a word next to it.
+5. **Plain words, short answers.** No restating the question, no headings in answers.
+6. **One system, many homes.** Tokens are semantic (`primary`, `label2`, `danger`), never
    named after a color, so a host theme can change the values without touching components.
 
 ---
@@ -40,7 +44,7 @@ wording, accessibility) stays the same everywhere.
 Tokens are RGB triplets so opacity works (`rgb(var(--c-primary) / 0.12)`). Use the token,
 never a raw value.
 
-### Light
+Light only (§1, principle 2).
 
 | Token | Hex | Use | Contrast on white |
 |---|---|---|---|
@@ -50,7 +54,7 @@ never a raw value.
 | `--c-label` | `#172033` | Body text and headings (a deep navy, not black) | 16.3:1 |
 | `--c-label2` | `#4A576F` | Secondary text | 7.3:1 |
 | `--c-label3` | `#626E85` | Hints, timestamps, placeholders | 5.1:1 |
-| `--c-canvas` | `#F6F8FC` | Page background ("pearl canvas", calmer than gray) | — |
+| `--c-canvas` | `#FFFFFF` | Page background: always white | — |
 | `--c-surface` | `#FFFFFF` | Cards, composer, panels | — |
 | `--c-surface2` | `#EFF2F8` | Wells, inputs, secondary buttons | — |
 | `--c-separator` | `#DBE1EC` | Borders and dividers | — |
@@ -58,19 +62,10 @@ never a raw value.
 | `--c-warning` | `#935700` | "Unreviewed sources", live, unverified | 5.8:1 |
 | `--c-danger` | `#C52C36` | Errors, fail, destructive actions | 5.5:1 |
 
-Every text color passes 4.5:1 on white and on the canvas.
+Every text color passes 4.5:1 on white.
 
-### Dark
-
-Sophia follows the computer's light/dark setting (a `.dark` class on the root).
-
-| Token | Hex | Token | Hex |
-|---|---|---|---|
-| canvas | `#0C111C` | primary | `#748BFF` |
-| surface | `#171E2D` | teal | `#3ACFD2` |
-| surface2 | `#212A3C` | success | `#30D158` |
-| separator | `#303B4F` | warning | `#FFB340` |
-| label / label2 / label3 | `#F6F8FC` / `#BFC9DB` / `#99A5BB` | danger | `#FF6961` |
+There is no dark palette. Don't add `prefers-color-scheme: dark` styles or a theme
+switch; set `color-scheme: light` on the root so form controls stay light too.
 
 ### The brand gradient
 
@@ -97,13 +92,13 @@ Defined in `site/assistant.css` (`--bc-*`) and `site/admin/admin.css`.
 | primary | `#CA5010` | The BetterCare SharePoint orange. White on it is exactly 4.5:1, so only bold text ≥13px sits on it |
 | primary-hover / orange text | `#993E0C` | 6.9:1 on white |
 | primary light (citations, selected) | `#F6DFD2` | |
-| label / label2 / label3 | `#242424` / `#605E5C` / `#8A8886` | label3 is only 3.5:1: timestamps only |
-| canvas / surface / separator | `#FAF9F8` / `#FFFFFF` / `#E1DFDD` | Fluent warm grays |
+| label / label2 / label3 | `#242424` / `#605E5C` / `#6E6C6A` | All pass 4.5:1 on white |
+| canvas / surface / surface2 / separator | `#FFFFFF` / `#FFFFFF` / `#F3F2F1` / `#E1DFDD` | White page; Fluent warm grays for wells and borders |
 | success / warning / danger | `#107C10` / `#7A5300` / `#A4262C` | |
 | font | Segoe UI | The Microsoft 365 font |
 
-The BetterCare pane is light only, because SharePoint is. The BetterCare admin panel
-follows light/dark.
+The BetterCare pane and the BetterCare admin panel are light only, on white, like
+every Sophia screen.
 
 **Decision to confirm (professor):** keep a host theme inside BetterCare, or show Sophia's
 own azure/teal everywhere so she is recognizably the same assistant. See the
@@ -149,7 +144,7 @@ zoom. Numbers in tables use tabular figures.
 - **Surfaces:** cards carry a faint white sheen (a 145° gradient) and a 1px inner top
   highlight; the evidence rail is frosted glass (`backdrop-filter: blur(18px)`).
 - **Motion:** 150–220ms, ease or `cubic-bezier(0.16, 1, 0.3, 1)`. Login and empty states may
-  use a slow "aurora" background. Everything decorative stops when the computer asks for
+  use a slow "aurora" over the white page. Everything decorative stops when the computer asks for
   reduced motion.
 
 ---
@@ -200,7 +195,8 @@ zoom. Numbers in tables use tabular figures.
 
 - **Chrome extension** (`extension/sidepanel.css`) uses the first mockup's teal palette
   (`#127D94`, navy `#17394A`). It should adopt the Sophia theme tokens above.
-- **BetterCare label3** (`#8A8886`, 3.5:1) is below body-text contrast; keep it to timestamps.
+- **Ask Sophia and the Sophia admin console** (`~/Code/sophia`) still use the pearl canvas
+  (`#F6F8FC`) and follow dark mode. Both move to white, light only.
 - **Answer badges** ("Evidence linked" / "Unreviewed sources") exist in Ask Sophia but not
   yet in the BetterCare pane.
 - Slide decks use a separate presentation style (Source Serif 4, IBM Plex Sans, `#B4501A`);

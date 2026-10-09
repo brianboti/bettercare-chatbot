@@ -200,7 +200,7 @@ function kpis(d) {
     tile('Questions', fmtN(t.questions), `${(t.questions / d.days).toFixed(1)} a day on average`),
     tile('People', fmtN(t.users), 'asked at least one question'),
     tile('Satisfaction', pct(t.up, rated), rated ? `${fmtN(t.up)} helpful · ${fmtN(t.down)} not helpful` : 'no ratings yet'),
-    tile("Couldn't find it", fmtN(t.lowConfidence + t.rephrased), `${fmtN(t.lowConfidence)} weak matches · ${fmtN(t.rephrased)} asked again${t.errors ? ` · ${fmtN(t.errors)} errors` : ''}`),
+    tile("Couldn't find it", fmtN(t.lowConfidence + t.rephrased), `${fmtN(t.lowConfidence)} weak matches · ${fmtN(t.rephrased)} asked again${t.errors ? ` · ${fmtN(t.errors)} error${t.errors === 1 ? '' : 's'}` : ''}`),
   ]);
 }
 
