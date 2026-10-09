@@ -306,6 +306,6 @@ const server = createServer(async (req, res) => {
 
 server.listen(config.PORT, config.HOST, () => {
   console.log(`\nSophia assistant  http://${config.HOST === '127.0.0.1' ? 'localhost' : config.HOST}:${config.PORT}`);
-  console.log(`  mode: ${llmAvailable() ? `claude (${config.ANTHROPIC_MODEL}, effort ${config.ANTHROPIC_EFFORT})` : 'retrieval-only (no ANTHROPIC_API_KEY)'}`);
+  console.log(`  mode: ${llmAvailable() ? `claude (${config.ANTHROPIC_MODEL}, effort ${config.ANTHROPIC_EFFORT}; rewrite ${config.REWRITE_MODEL})` : 'retrieval-only (no ANTHROPIC_API_KEY)'}`);
   console.log(`  corpus: ${chunks.length} chunks from ${new Set(chunks.map((c) => c.sourceId)).size} sources`);
 });

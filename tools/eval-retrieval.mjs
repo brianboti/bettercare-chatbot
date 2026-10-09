@@ -17,47 +17,9 @@ import { loadChunks } from '../server/corpus.mjs';
 import { buildRetriever } from '../server/retriever.mjs';
 import { isBroad } from '../server/chat.mjs';
 import { config } from '../server/config.mjs';
+import { RETRIEVAL_CASES as CASES } from './eval-cases.mjs';
 
 const K = 8;
-const CASES = [
-  ['How do I set up Haiku on my phone?',                         ['Haiku.aspx', 'Haiku Quick Start', 'download and install Epic Haiku']],
-  ['How do I use Epic on my phone?',                             ['Haiku']],
-  ['What is SlicerDicer called in axiUm?',                       ['Terminology:1']],
-  ['Where is the cash drawer tip sheet?',                        ['Cash Drawer']],
-  ['Can a resident and an attending both record with Abridge?', ['more than one provider use Abridge']],
-  ['What is the Health IT help desk phone number?',              ['text:450-4800', 'Help-Desk-Contact']],
-  ['When is the next Epic upgrade?',                             ['Upgrade Timeline', 'Epic-Upgrades.aspx', 'vMay2026', 'vAugust2026', 'Epic Upgrade']],
-  ['What training do dental students need?',                    ['DtlCrseJR:2', 'Dental Student']],
-  ['How do I pin the Abridge tab in Epic?',                      ['Pin the Abridge', 'Pin-Abridge', 'pin the Abridge tab']],
-  ['Which dot phrase gives an Abridge patient visit summary?',   ['FAQsAbridge:13', 'Patient Visit Summary']],
-  ['Where is the downtime BCA policy for MSRH?',                 ['BCA Policy', 'BCA.aspx']],
-  ['What is Epic Thrive training?',                              ['Thrive']],
-  ['Phone number for the Mays Cancer Center lab draw station',   ['MAYS CANCER CENTER']],
-  ['How do I cover someone else\'s In Basket?',                   ['Resource Directory:1', 'InBasket Hack', 'attach to an InBasket']],
-  ['What is Qualified Health and how do I use Qualified Chat?',  ['QualifiedHealth', 'Qualified Chat', 'Qualified Health']],
-  ['Is there an AI governance policy?',                          ['Legislation', 'Policy.aspx', 'Governance', 'Interdisciplinary-Advisory']],
-  ['Did UT Health reach Epic Gold Stars level 7?',               ['Level-7', 'Level 7']],
-  ['What is Charge Capture Navigator?',                          ['Charge Capture Navigator', 'Charge-Capture-Navigator']],
-  ['How do I report an issue or submit a ticket for Epic?',      ['Help-Desk-Contact', 'Report an Issue', 'Submit a', 'Home.aspx', 'technical support']],
-  ['What changed with cancer staging in Refuel Phase 4?',        ['Cancer Staging']],
-  ['What devices can run Epic Haiku?',                           ['compatible with Epic Haiku', 'Haiku.aspx', 'Compatible Devices']],
-  ['What happened at the Kyle Seale Parkway opening?',           ['Kyle-Seale-Parkway']],
-  ['How do I get access to Abridge?',                            ['AbridgeInside', 'How do I get started', 'Abridge', 'access Abridge']],
-  ['Where can I find Abridge office hours?',                     ['text:office hours']],
-  ['What AI tools are approved for use?',                        ['Approved Gen AI', 'Approved-Gen', 'AITools']],
-  // Time-relative and role-filtered upgrade questions ("last" = most recent
-  // go-live before today, per the Upgrade Timeline list).
-  ['What should a surgeon know about what is new in Epic with the last upgrade?', ['text:Surgical Scheduling']],
-  ['What changed for anesthesia in the latest upgrade?',        ['text:preprocedure evaluation']],
-  ['What is coming in the next Epic upgrade?',                   ['text:vMay2026', 'text:vMay26']],
-  ['When did the last upgrade go live?',                         ['Upgrade Timeline:8']],
-  ['What was new in the previous upgrade?',                      ['vNovember2025', 'vNov25', 'text:vNovember2025']],
-  ['how do I file my taxes',                                     null],
-  ['best pizza delivery near me',                                null],
-  ['What is the weather in Austin tomorrow?',                    null],
-  ['How do I renew my driver license?',                          null],
-  ['Recommend a good sci-fi novel',                              null],
-];
 
 const verbose = process.argv.includes('--verbose');
 const found = [], flagged = []; // for --json (the admin panel's Tests tab)

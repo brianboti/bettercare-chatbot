@@ -26,10 +26,25 @@ function anthropic() {
   return client;
 }
 
-/** Server-side refusal fallback (Claude API): a declined request is re-run on another model. */
-const fallback = () => (config.REFUSAL_FALLBACK
+/**
+ * Server-side refusal fallback (Claude API): a declined request is re-run on
+ * another model. Only models with refusal classifiers take it (not Haiku 4.5).
+ */
+const fallback = (model) => (config.REFUSAL_FALLBACK && /opus-5|sonnet-5-5|fable-5/.test(model)
   ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }
   : {});
+
+/**
+ * Short structured calls (rewrite, welcome): no thinking, least effort. Each
+ * model spells that differently: Opus 5.5 and Fable can't turn thinking off
+ * (low effort instead), Sonnet 5.5 uses between_tools, Haiku 4.5 has no effort.
+ */
+function quick(model, format) {
+  if (/haiku-4-5/.test(model)) return { thinking: { type: 'disabled' }, output_config: { format } };
+  if (/sonnet-5-5/.test(model)) return { thinking: { type: 'between_tools' }, output_config: { effort: 'low', format } };
+  if (/opus-5-5|fable-5/.test(model)) return { output_config: { effort: 'low', format } };
+  return { thinking: { type: 'disabled' }, output_config: { effort: 'low', format } };
+}
 
 /**
  * Rewrite the latest message into a standalone, vocabulary-expanded search
@@ -41,12 +56,12 @@ export async function rewriteQuery(history, latest, facts = '', person = '', met
   const transcript = history.length
     ? history.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 1500)}`).join('\n')
     : '(no earlier messages)';
+  const model = meta.model || config.REWRITE_MODEL;
   const res = await anthropic().beta.messages.create({
-    model: config.ANTHROPIC_MODEL,
+    model,
     max_tokens: 1024,
-    thinking: { type: 'disabled' },
-    output_config: { effort: 'low', format: { type: 'json_schema', schema: rewriteSchema(TOPIC_NAMES) } },
-    ...fallback(),
+    ...quick(model, { type: 'json_schema', schema: rewriteSchema(TOPIC_NAMES) }),
+    ...fallback(model),
     system: REWRITE_SYSTEM,
     messages: [{ role: 'user', content: `${facts ? `<site_facts>\n${facts}\n</site_facts>\n\n` : ''}${person ? `<person>\n${person}\n</person>\n\n` : ''}<conversation>\n${transcript}\n</conversation>\n\nLatest message: ${latest}` }],
   });
@@ -66,13 +81,12 @@ export async function rewriteQuery(history, latest, facts = '', person = '', met
  * One short structured call: Claude writes the welcome line and phrases the
  * suggestion cards in Sophia's voice. `schema` constrains the output.
  */
-export async function generateJson(system, content, schema, { maxTokens = 1500, purpose = 'other', userId = null } = {}) {
+export async function generateJson(system, content, schema, { maxTokens = 1500, purpose = 'other', userId = null, model = config.ANTHROPIC_MODEL } = {}) {
   const res = await anthropic().beta.messages.create({
-    model: config.ANTHROPIC_MODEL,
+    model,
     max_tokens: maxTokens,
-    thinking: { type: 'disabled' },
-    output_config: { effort: 'low', format: { type: 'json_schema', schema } },
-    ...fallback(),
+    ...quick(model, { type: 'json_schema', schema }),
+    ...fallback(model),
     system,
     messages: [{ role: 'user', content }],
   });
@@ -88,12 +102,13 @@ export async function generateJson(system, content, schema, { maxTokens = 1500, 
  * @returns {Promise<{ stopReason: string, model: string, usage: object }>}
  */
 export async function streamAnswer(messages, { onText, onReset }, signal, meta = {}) {
+  const model = meta.model || config.ANTHROPIC_MODEL;
   const stream = anthropic().beta.messages.stream({
-    model: config.ANTHROPIC_MODEL,
+    model,
     max_tokens: config.MAX_TOKENS,
     thinking: { type: 'adaptive' },
     output_config: { effort: config.ANTHROPIC_EFFORT },
-    ...fallback(),
+    ...fallback(model),
     // The system prompt is identical on every request; cache it.
     system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
     messages,

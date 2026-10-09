@@ -27,6 +27,9 @@ export const config = Object.freeze({
   // or an `ant auth login` profile). With none, the server runs retrieval-only.
   LLM_ENABLED: env.LLM_DISABLED !== '1',
   ANTHROPIC_MODEL: env.ANTHROPIC_MODEL || 'claude-opus-5',
+  // The search rewrite is a small classify-and-rephrase job; it can run on a
+  // cheaper model than the answer. Defaults to the answer model.
+  REWRITE_MODEL: env.REWRITE_MODEL || env.ANTHROPIC_MODEL || 'claude-opus-5',
   ANTHROPIC_EFFORT: (() => {
     const e = env.ANTHROPIC_EFFORT || 'low';
     if (!EFFORTS.includes(e)) throw new Error(`config: ANTHROPIC_EFFORT must be one of ${EFFORTS.join(', ')}`);
