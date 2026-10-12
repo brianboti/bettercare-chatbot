@@ -125,7 +125,7 @@ function currentUser(req) {
   return { id, user };
 }
 
-const EVENT_TYPES = new Set(['citation_click', 'suggestion_click', 'promo_click', 'promo_dismiss', 'promo_link_click', 'history_open', 'copy_answer', 'welcome_card_click']);
+const EVENT_TYPES = new Set(['citation_click', 'suggestion_click', 'promo_click', 'promo_dismiss', 'promo_link_click', 'history_open', 'copy_answer', 'welcome_card_click', 'assumption_fix']);
 
 function requireAdmin(user) {
   if (!user?.isAdmin) throw new ChatError('FORBIDDEN', 'Admins only.', 403);

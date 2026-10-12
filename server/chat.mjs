@@ -2,6 +2,9 @@
 //
 // SSE protocol (see extension/lib/chat-api.js). Every stream ends in exactly
 // one `error` or one `done`.
+//
+// Every answer opens with Sophia's assumptions, cites every bullet, and ends
+// with where to get human help (the Health IT Help Desk).
 
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -11,7 +14,9 @@ import { PROMPT_VERSION, buildUserTurn } from './prompt.mjs';
 import { VERSION } from './version.mjs';
 import { llmAvailable, rewriteQuery, streamAnswer, Anthropic } from './llm.mjs';
 import { OpenAI } from './openai.mjs';
-import { SuggestionSplitter } from './followups.mjs';
+import { SuggestionSplitter, AssumptionSplitter } from './followups.mjs';
+import { repairCitations } from './citations.mjs';
+import { helpLine, hasHelp, withHelpSource, HELP_SOURCE_ID } from './help.mjs';
 import { tagTopics } from './topics.mjs';
 import { describePerson } from './personalize.mjs';
 import { orderByRecency } from './recency.mjs';
@@ -79,7 +84,7 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
   const useLlm = llmAvailable();
   const log = { at: new Date().toISOString(), version: VERSION, question, promptVersion: PROMPT_VERSION, user: user?.id || null };
   const person = user && store ? describePerson(store, user) : '';
-  const turn = { question, topics: [], intent: null, answer: '', sources: [], suggestions: null };
+  const turn = { question, topics: [], intent: null, context: [], answer: '', sources: [], suggestions: null, assumptions: [] };
   let saved = null;
   const saveTurn = () => {
     if (!user || !store || saved) return saved;
@@ -100,14 +105,14 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
       send('status', { stage: 'rewriting' });
       try {
         const r = await rewriteQuery(history, question, facts, person, { userId: user?.id });
-        query = r.query; turn.topics = r.topics; turn.intent = r.intent;
+        query = r.query; turn.topics = r.topics; turn.intent = r.intent; turn.context = r.context || [];
       } catch { /* fall back to the raw question */ }
     } else if (history.length) {
       query = `${history.filter((m) => m.role === 'user').slice(-1)[0]?.content || ''} ${question}`;
     }
     // Follow-ups ("shorter please") inherit the topic of the conversation.
     if (!turn.topics.length) turn.topics = tagTopics(question).length ? tagTopics(question) : tagTopics(query);
-    log.rewritten = query; log.intent = turn.intent; log.topics = turn.topics;
+    log.rewritten = query; log.intent = turn.intent; log.topics = turn.topics; log.context = turn.context;
 
     // 2. Retrieve.
     send('status', { stage: 'retrieving', query });
@@ -118,7 +123,12 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
       : {});
     const { confidence, lowConfidence } = found;
     // Newest first; much older matches are marked so they're shown last.
-    const { results, older } = orderByRecency(found.results, { windowDays: config.RECENT_WINDOW_DAYS });
+    const ordered = orderByRecency(found.results, { windowDays: config.RECENT_WINDOW_DAYS });
+    const { older } = ordered;
+    // The help desk contacts are always in the excerpts, last, for the help line.
+    const results = withHelpSource(ordered.results, retriever);
+    const helpN = results.findIndex((c) => c.id === HELP_SOURCE_ID) + 1;
+    const withHelp = (answer) => (helpN && !hasHelp(answer) ? `${answer}\n\n${helpLine(helpN)}` : answer);
     log.broad = broad;
     log.retrieved = results.map((r) => ({ id: r.id, score: r.score, cos: r.cosine && +r.cosine.toFixed(3), by: r.retrievedBy }));
     log.confidence = confidence;
@@ -128,10 +138,12 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
     // site matches it. Answer with a fixed reply instead of asking the model,
     // so Sophia never answers from general knowledge.
     if (isOutOfScope(turn.intent, lowConfidence)) {
-      turn.answer = OUT_OF_SCOPE_ANSWER;
+      const footer = retriever.get?.(HELP_SOURCE_ID);
+      turn.sources = footer ? [sourceView(footer, 1)] : [];
+      turn.answer = footer ? `${OUT_OF_SCOPE_ANSWER}\n\n${helpLine(1)}` : OUT_OF_SCOPE_ANSWER;
       turn.mode = 'out-of-scope';
       log.outOfScope = true;
-      send('sources', []);
+      send('sources', turn.sources);
       send('token', { text: turn.answer });
       const turnId = saveTurn();
       send('done', { finishReason: 'out_of_scope', mode: 'out-of-scope', model: null, promptVersion: PROMPT_VERSION, rewrittenQuery: query, confidence, latencyMs: Date.now() - t0, turnId });
@@ -144,7 +156,7 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
     // 3. Generate.
     if (!useLlm) {
       send('status', { stage: 'generating' });
-      turn.answer = extractiveAnswer(results, lowConfidence);
+      turn.answer = withHelp(extractiveAnswer(results, lowConfidence));
       turn.mode = 'retrieval-only';
       send('token', { text: turn.answer });
       const turnId = saveTurn();
@@ -156,17 +168,32 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
     const today = new Date().toLocaleDateString('en-US', { timeZone: 'America/Chicago', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     const apiMessages = [
       ...history,
-      { role: 'user', content: buildUserTurn(question, results, { lowConfidence, today, facts, broad, person, intent: turn.intent, older }) },
+      { role: 'user', content: buildUserTurn(question, results, { lowConfidence, today, facts, broad, person, said: turn.context, intent: turn.intent, older }) },
     ];
-    // The trailing <suggestions> block is cut out of the visible stream.
+    // The leading <assumptions> and trailing <suggestions> blocks are cut out
+    // of the visible stream and sent as their own events.
+    const onAssumptions = (a) => { turn.assumptions = a; if (a.length) send('assumptions', a); };
+    let lead = new AssumptionSplitter(onAssumptions);
     let split = new SuggestionSplitter();
+    const show = (text) => { const shown = split.push(text); if (shown) { turn.answer += shown; send('token', { text: shown }); } };
     const out = await streamAnswer(apiMessages, {
-      onText: (text) => { const shown = split.push(text); if (shown) { turn.answer += shown; send('token', { text: shown }); } },
-      onReset: () => { split = new SuggestionSplitter(); turn.answer = ''; send('reset', {}); },
+      onText: (text) => { const rest = lead.push(text); if (rest) show(rest); },
+      onReset: () => { lead = new AssumptionSplitter(onAssumptions); split = new SuggestionSplitter(); turn.answer = ''; turn.assumptions = []; send('reset', {}); },
     }, signal, { userId: user?.id });
+    const rest = lead.finish();
+    if (rest) show(rest);
     const tail = split.finish();
     if (tail.text) { turn.answer += tail.text; send('token', { text: tail.text }); }
     turn.answer = turn.answer.trimEnd();
+    log.assumptions = turn.assumptions.length;
+
+    // Cite any bullet the model left bare, then add the help line. The client
+    // swaps in the final text.
+    const fixed = repairCitations(turn.answer, results);
+    log.citationsAdded = fixed.added;
+    if (fixed.unresolved.length) log.uncited = fixed.unresolved;
+    const final = out.stopReason === 'refusal' ? turn.answer : withHelp(fixed.text);
+    if (final !== turn.answer) { turn.answer = final; send('answer', { text: final }); }
     turn.suggestions = tail.suggestions;
     if (tail.suggestions) send('suggestions', tail.suggestions);
     log.model = out.model; log.usage = out.usage; log.stopReason = out.stopReason;
@@ -218,9 +245,9 @@ export function extractiveAnswer(results, lowConfidence) {
   if (!results.length || lowConfidence) {
     return "That information doesn't exist in the BetterCare documents. The closest matches are listed below.";
   }
-  const top = results.slice(0, 3).map((c, i) => {
+  const top = results.map((c, i) => ({ c, n: i + 1 })).filter(({ c }) => c.id !== HELP_SOURCE_ID).slice(0, 3).map(({ c, n }) => {
     const body = c.text.replace(/\n+/g, ' ').slice(0, 320);
-    return `- **${c.title}** — ${body}${c.text.length > 320 ? '…' : ''} [${i + 1}]`;
+    return `- **${c.title}** — ${body}${c.text.length > 320 ? '…' : ''} [${n}]`;
   });
   return `Here's what I found on the site:\n${top.join('\n')}`;
 }

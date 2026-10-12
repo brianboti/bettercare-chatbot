@@ -104,6 +104,7 @@ export function openStore(file) {
   // Columns added after a database was first created.
   const hasColumn = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
   if (!hasColumn('promotions', 'url')) db.exec('ALTER TABLE promotions ADD COLUMN url TEXT');
+  if (!hasColumn('turns', 'assumptions')) db.exec('ALTER TABLE turns ADD COLUMN assumptions TEXT');
 
   const q = (sql) => db.prepare(sql);
 
@@ -143,16 +144,17 @@ export function openStore(file) {
     question: r.question, rewritten: r.rewritten, intent: r.intent, topics: j(r.topics, []),
     answer: r.answer, sources: j(r.sources, []), suggestions: j(r.suggestions, null),
     confidence: r.confidence, lowConfidence: !!r.low_confidence, mode: r.mode, latencyMs: r.latency_ms,
-    error: r.error, feedback: r.feedback, feedbackNote: r.feedback_note,
+    error: r.error, feedback: r.feedback, feedbackNote: r.feedback_note, assumptions: j(r.assumptions, []),
   });
 
   function addTurn(t) {
     const r = q(`INSERT INTO turns (user_id, conversation_id, at, question, rewritten, intent, topics, answer, sources,
-      suggestions, confidence, low_confidence, mode, latency_ms, error, demo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      suggestions, confidence, low_confidence, mode, latency_ms, error, demo, assumptions) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(t.userId, t.conversationId, t.at || now(), t.question, t.rewritten ?? null, t.intent ?? null,
         JSON.stringify(t.topics || []), t.answer ?? null, JSON.stringify(t.sources || []),
         t.suggestions ? JSON.stringify(t.suggestions) : null, t.confidence ?? null, t.lowConfidence ? 1 : 0,
-        t.mode ?? null, t.latencyMs ?? null, t.error ?? null, t.demo ? 1 : 0);
+        t.mode ?? null, t.latencyMs ?? null, t.error ?? null, t.demo ? 1 : 0,
+        t.assumptions?.length ? JSON.stringify(t.assumptions) : null);
     return Number(r.lastInsertRowid);
   }
 

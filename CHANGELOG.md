@@ -17,6 +17,30 @@ Changes to docs or tests alone don't need a release.
 
 ## Unreleased
 
+### Added
+- Every answer opens with what Sophia is assuming ("You're using ProcDoc in
+  Epic"), shown in an "Assuming" box above the answer, with one-tap
+  corrections ("I'm not using ProcDoc") on the latest answer. She still asks
+  a clarifying question when a guess would be risky.
+- Every answer ends by pointing to a person: the Health IT Help Desk
+  (210-450-4800 / 210-450-HELP, HealthITSupport@uthscsa.edu), cited to the
+  site footer. Questions about immediate or at-the-elbow help get the help
+  desk number and any on-site support the site describes.
+- `npm run eval:answers` and an "Answer rules" suite in the admin Tests tab:
+  six questions, including the ProcDoc follow-up conversation, checking the
+  assumptions, a citation on every bullet, and the help line.
+
+### Changed
+- Every bullet and numbered step carries its own citation. The prompt asks
+  for it, and the server cites any bullet the model leaves bare from the
+  excerpt it matches (the SmartList answer had citations only on its
+  lead-in).
+- Sophia prefers the most specific source: the ProcDoc tip sheet over the
+  general Thrive training objectives, for example.
+- Follow-up questions keep what the person said earlier in the conversation
+  (role, specialty, tool). It now outranks their profile, so an orthopedic
+  surgeon with a nurse profile no longer gets nursing answers to follow-ups.
+
 ## [2.7.1] — 2026-10-09
 
 ### Changed

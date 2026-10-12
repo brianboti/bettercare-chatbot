@@ -394,7 +394,7 @@ async function openConversation(conversationId) {
   state.conversationId = conversationId;
   state.turns = r.turns.flatMap((t) => [
     { role: 'user', content: t.question },
-    { role: 'assistant', content: t.answer || '', sources: t.sources || [], turnId: t.id, feedback: t.feedback, feedbackNote: t.feedbackNote, suggestions: t.suggestions, error: t.error ? { message: 'This answer didn\'t finish.' } : null },
+    { role: 'assistant', content: t.answer || '', sources: t.sources || [], turnId: t.id, feedback: t.feedback, feedbackNote: t.feedbackNote, suggestions: t.suggestions, assumptions: t.assumptions || [], error: t.error ? { message: 'This answer didn\'t finish.' } : null },
   ]);
   save();
   showChat();
@@ -409,11 +409,12 @@ function userTurn(text) {
 /** Build (or rebuild) an assistant turn's DOM from its state. `latest` shows quick replies. */
 function assistantTurn(t, latest = true) {
   const node = el('div', { class: 'bc-turn' });
+  const assume = el('div', { class: 'bc-assume', hidden: '' });
   const answer = el('div', { class: 'bc-answer' });
   const status = el('div', { class: 'bc-status' }, [el('span', { class: 'bc-dots' }, [el('i'), el('i'), el('i')]), el('span', { text: '' })]);
   const extras = el('div', { class: 'bc-extras' });
   const sources = el('div', { class: 'bc-sources' });
-  node.append(status, answer, extras, sources);
+  node.append(status, assume, answer, extras, sources);
 
   const cite = (n) => {
     const s = t.sources?.[n - 1];
@@ -430,6 +431,27 @@ function assistantTurn(t, latest = true) {
     status.hidden = !t.pending || !!t.content;
     status.lastChild.textContent = t.status || 'Thinking…';
     answer.classList.toggle('bc-streaming', !!t.pending && !!t.content);
+    // What Sophia assumed, above the answer; on the latest answer, one tap corrects it.
+    const assumed = t.assumptions || [];
+    assume.hidden = !assumed.length;
+    assume.replaceChildren();
+    if (assumed.length) {
+      const isLatest = latest && state.turns[state.turns.length - 1] === t && !t.pending;
+      assume.append(
+        el('span', { class: 'bc-assume-label', text: 'Assuming' }),
+        el('ul', { class: 'bc-assume-list' }, assumed.map((a) => el('li', { text: a.text }))),
+      );
+      const fixes = isLatest ? assumed.filter((a) => a.fix) : [];
+      if (fixes.length) {
+        assume.append(el('div', { class: 'bc-assume-fixes' }, [
+          el('span', { class: 'bc-assume-hint', text: 'Not right?' }),
+          ...fixes.map((a) => el('button', {
+            type: 'button', class: 'bc-chip', text: a.fix,
+            onclick: () => { track('assumption_fix', { turnId: t.turnId, data: { assumption: a.text, fix: a.fix } }); ask(a.fix); },
+          })),
+        ]));
+      }
+    }
     answer.replaceChildren(renderAnswer(t.content || '', cite));
     // Links to BetterCare pages/files open here in the replica, not on SharePoint.
     for (const a of answer.querySelectorAll('a[href^="https://uthealthsa.sharepoint.com/sites/BetterCare"]')) {
@@ -631,7 +653,8 @@ async function stream(t, v) {
 
   const history = state.turns
     .filter((x) => x !== t && !x.error)
-    .map((x) => ({ role: x.role, content: x.content }))
+    // Sophia's assumptions travel with her answers, so follow-ups keep them.
+    .map((x) => ({ role: x.role, content: x.assumptions?.length && x.content ? `(Assumed: ${x.assumptions.map((a) => a.text).join('; ')})\n\n${x.content}` : x.content }))
     .filter((x) => x.content);
 
   let frame = 0;
@@ -647,9 +670,11 @@ async function stream(t, v) {
   await streamChat(API, history, {
     status: (d) => { t.status = STAGES[d.stage] || t.status; repaint(); },
     sources: (s) => { t.sources = s; repaint(); },
+    assumptions: (a) => { t.assumptions = a; repaint(); },
     token: (d) => { t.content += d.text; repaint(); },
+    answer: (d) => { t.content = d.text; repaint(); },
     suggestions: (s) => { t.suggestions = s; },
-    reset: () => { t.content = ''; repaint(); },
+    reset: () => { t.content = ''; t.assumptions = []; repaint(); },
     error: (e) => {
       t.error = e.code === 'UNREACHABLE' ? { message: "Can't reach the assistant server. Is `npm start` running?" }
         : e.code === 'RATE_LIMITED' ? { message: e.message || 'Too many questions — wait a moment.' }

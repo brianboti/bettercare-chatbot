@@ -98,7 +98,7 @@ function quick(model, format) {
  * Rewrite the latest message into a standalone, vocabulary-expanded search
  * query, and classify it (topics for personalization and analytics, intent
  * for answer length).
- * @returns {Promise<{ query: string, topics: string[], intent: string|null }>}
+ * @returns {Promise<{ query: string, topics: string[], intent: string|null, context: string[] }>}
  */
 export async function rewriteQuery(history, latest, facts = '', person = '', meta = {}) {
   const transcript = history.length
@@ -124,8 +124,9 @@ export async function rewriteQuery(history, latest, facts = '', person = '', met
     report('rewrite', r, meta);
     return r.json;
   });
-  if (!out) return { query: latest, topics: [], intent: null };
-  return { query: String(out.query || latest).split('\n')[0].slice(0, 500), topics: cleanTopics(out.topics), intent: out.intent || null };
+  if (!out) return { query: latest, topics: [], intent: null, context: [] };
+  const context = (Array.isArray(out.context) ? out.context : []).map((x) => String(x).trim().slice(0, 80)).filter(Boolean).slice(0, 6);
+  return { query: String(out.query || latest).split('\n')[0].slice(0, 500), topics: cleanTopics(out.topics), intent: out.intent || null, context };
 }
 
 /**

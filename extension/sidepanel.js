@@ -331,6 +331,7 @@ async function onlineAnswer() {
   scrollDown();
 
   let text = '';
+  let assumed = [];
   let sources = [];
   let failed = null;
   let turnId = null;
@@ -339,7 +340,10 @@ async function onlineAnswer() {
 
   const paint = () => {
     answer.hidden = !text;
-    answer.replaceChildren(renderAnswer(text, (n) => citeChip(sources, n)));
+    answer.replaceChildren(
+      ...(assumed.length ? [el('p', { class: 'assume', text: `Assuming: ${assumed.map((a) => a.text).join(' · ')}` })] : []),
+      renderAnswer(text, (n) => citeChip(sources, n)),
+    );
     const nearBottom = thread().scrollHeight - thread().scrollTop - thread().clientHeight < 120;
     if (nearBottom) scrollDown();
   };
@@ -347,8 +351,10 @@ async function onlineAnswer() {
   await streamChat(API, history, {
     status: (d) => { status.querySelector('.thinking__text').textContent = STATUS_TEXT[d.stage] || 'Working…'; },
     sources: (d) => { sources = d; },
+    assumptions: (a) => { assumed = a; paint(); },
     token: (d) => { status.remove(); text += d.text; paint(); },
-    reset: () => { text = ''; paint(); },
+    answer: (d) => { text = d.text; paint(); },
+    reset: () => { text = ''; assumed = []; paint(); },
     error: (d) => { failed = d; },
     done: (d) => { turnId = d.turnId ?? null; },
   }, controller.signal, { userId: USER_ID, conversationId: CONVERSATION_ID });
@@ -377,7 +383,7 @@ async function onlineAnswer() {
 
   if (aborted) text += ' …';
   paint();
-  history.push({ role: 'assistant', content: text });
+  history.push({ role: 'assistant', content: assumed.length ? `(Assumed: ${assumed.map((a) => a.text).join('; ')})\n\n${text}` : text });
   turn.append(feedbackRow(() => turnId));
   if (sources.length) turn.append(sourcesBlock(sources, text));
   scrollDown();

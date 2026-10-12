@@ -56,3 +56,64 @@ export function parseSuggestions(block) {
     .slice(0, 4);
   return items.length ? { kind: m[1] || 'followup', items } : null;
 }
+
+// The answer opens with the assumptions Sophia is making, one per line, each
+// with how the person would correct it:
+//
+//   <assumptions>
+//   You're documenting with ProcDoc in Epic | I'm not using ProcDoc
+//   You don't have NoteWriter macros yet | I already have macros
+//   </assumptions>
+//
+// Like the suggestions block, it is cut out of the streamed text and sent as
+// its own event; the client shows it as an "Assuming" line above the answer.
+
+const A_OPEN = '<assumptions';
+const A_CLOSE = '</assumptions>';
+
+export class AssumptionSplitter {
+  /** @param {(a: {text: string, fix: string|null}[]) => void} onAssumptions */
+  constructor(onAssumptions) { this.buf = ''; this.state = 'start'; this.onAssumptions = onAssumptions; }
+
+  /** Feed a text delta; returns the part that belongs to the answer. */
+  push(text) {
+    if (this.state === 'pass') return text;
+    this.buf += text;
+    if (this.state === 'start') {
+      const lead = this.buf.trimStart();
+      if (!lead) return '';
+      if (lead.length < A_OPEN.length && A_OPEN.startsWith(lead)) return '';   // could still be the tag
+      if (!lead.startsWith(A_OPEN)) return this.release();
+      this.state = 'block';
+    }
+    const end = this.buf.indexOf(A_CLOSE);
+    if (end < 0) return '';
+    this.onAssumptions?.(parseAssumptions(this.buf.slice(0, end + A_CLOSE.length)));
+    const rest = this.buf.slice(end + A_CLOSE.length).replace(/^\s+/, '');
+    this.buf = '';
+    this.state = 'pass';
+    return rest;
+  }
+
+  /** End of stream: anything still held back (an unclosed block is dropped). */
+  finish() {
+    if (this.state === 'block') { this.onAssumptions?.(parseAssumptions(this.buf)); this.buf = ''; return ''; }
+    return this.release();
+  }
+
+  release() { const out = this.buf; this.buf = ''; this.state = 'pass'; return out; }
+}
+
+export function parseAssumptions(block) {
+  const m = /<assumptions\s*>([\s\S]*?)(?:<\/assumptions>|$)/.exec(block || '');
+  if (!m) return [];
+  return m[1].split('\n')
+    .map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim())
+    .filter(Boolean)
+    .map((l) => {
+      const [text, fix] = l.split('|').map((s) => s.trim().replace(/^"|"$/g, ''));
+      return { text: text.slice(0, 120), fix: fix ? fix.slice(0, 80) : null };
+    })
+    .filter((a) => a.text)
+    .slice(0, 3);
+}

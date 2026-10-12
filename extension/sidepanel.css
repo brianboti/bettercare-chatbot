@@ -135,6 +135,7 @@ body {
   overflow-wrap: anywhere;
 }
 .answer p { margin: 0; }
+.answer .assume { font-family: var(--sans); font-size: 12.5px; color: var(--ink-2); padding-bottom: 8px; border-bottom: 1px solid var(--line-soft); }
 .answer ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
 .answer strong { font-weight: 600; }
 .lead { font-family: var(--sans); font-size: 12.5px; color: var(--ink-2); }

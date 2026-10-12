@@ -180,5 +180,6 @@ export async function buildRetriever(chunks, opts = {}) {
     return { results, confidence, lowConfidence: confidence < config.LOW_CONFIDENCE_THRESHOLD };
   }
 
-  return { retrieve, facts, size: chunks.length };
+  const byId = new Map(chunks.map((c) => [c.id, c]));
+  return { retrieve, facts, size: chunks.length, get: (id) => byId.get(id) || null };
 }

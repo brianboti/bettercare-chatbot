@@ -13,6 +13,7 @@
     "export:receiver": "node tools/export-receiver.mjs",
     "eval": "node --env-file-if-exists=.env tools/eval-retrieval.mjs",
     "eval:scope": "BACKUP_DISABLED=1 node --env-file-if-exists=.env tools/eval-scope.mjs",
+    "eval:answers": "BACKUP_DISABLED=1 node --env-file-if-exists=.env tools/eval-answers.mjs",
     "compare:models": "BACKUP_DISABLED=1 node --env-file-if-exists=.env tools/compare-models.mjs",
     "release": "node tools/release.mjs",
     "seed:demo": "node tools/seed-demo.mjs",

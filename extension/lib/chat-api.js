@@ -7,9 +7,11 @@
 // SSE protocol (POST /api/chat) — every stream ends in exactly one `error` or `done`:
 //   status   { stage: 'rewriting' | 'retrieving' | 'generating', query? }
 //   sources  [{ n, id, title, headingPath, kind, sourceType, list, url, localUrl, docUrl, date, snippet, score, retrievedBy }]
+//   assumptions [{ text, fix }]   what Sophia assumed (shown above the answer); fix = how the person would correct it
 //   token    { text }
+//   answer   { text }   the final answer text (missing citations added, help line appended): replaces the streamed text
 //   suggestions { kind: 'reply' | 'followup', items: string[] }   quick replies to Sophia's question, or next questions
-//   reset    {}   the model declined mid-answer and a fallback model took over: clear the text
+//   reset    {}   the model declined mid-answer and a fallback model took over: clear the text and assumptions
 //   error    { code, message }
 //   done     { finishReason, mode, model, promptVersion, rewrittenQuery, confidence, latencyMs, turnId }
 //

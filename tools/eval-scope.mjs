@@ -37,6 +37,7 @@ async function ask(question) {
   let answer = '', done = null, error = null, sources = [];
   const send = (event, data) => {
     if (event === 'token') answer += data.text;
+    else if (event === 'answer') answer = data.text;
     else if (event === 'reset') answer = '';
     else if (event === 'sources') sources = data;
     else if (event === 'done') done = data;

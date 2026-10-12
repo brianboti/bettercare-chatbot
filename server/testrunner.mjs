@@ -36,6 +36,13 @@ export const SUITES = [
     cost: 'Calls Claude · about 1 minute',
     args: () => ['tools/eval-scope.mjs', '--json'],
   },
+  {
+    key: 'answers',
+    label: 'Answer rules',
+    description: 'Six questions with the real AI model, including a three-question follow-up conversation: every answer must say what it assumed, cite every bullet, and point to the help desk.',
+    cost: 'Calls Claude · about 1 minute',
+    args: () => ['tools/eval-answers.mjs', '--json'],
+  },
 ];
 
 const runs = new Map(); // key -> run

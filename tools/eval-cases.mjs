@@ -74,3 +74,32 @@ export const SCOPE_CASES = [
   ['In-scope control', 'Where can I find Epic training?', { control: true }],
   ['In-scope control', "What's new for nurses in the last Epic upgrade?", { control: true }],
 ];
+
+// Answer-shape cases (tools/eval-answers.mjs): short conversations from the
+// product owner's notes. Each turn may also check:
+//   cites     a cited source's title must match (the specific guide)
+//   mentions  Sophia's own text must match (before the help line is added)
+//   assumes   the assumptions or answer must use what the person said
+//   notRole   ... and must not fall back to the profile role
+export const ANSWER_CASES = [
+  {
+    name: 'ProcDoc follow-ups', role: 'nurse', department: 'Inpatient Medicine',
+    turns: [
+      { q: "I'm an orthopedic surgeon, how do I use Procdoc to document a Knee injection?", assumes: /orthop|surgeon/i },
+      { q: 'I have to click a lot to do the documentation, how can I improve that?', assumes: /orthop|surgeon|procdoc/i, notRole: /\bnurs/i },
+      { q: "I'm using ProcDoc and I'm having to click a lot to do the documentation, how can I improve that?", cites: /procdoc/i },
+    ],
+  },
+  {
+    name: 'Immediate help', role: 'physician',
+    turns: [{ q: 'How do I get immediate help? I want someone elbow to elbow with me', mentions: /450[-.\s]?(HELP|4800)/i }],
+  },
+  {
+    name: 'SmartPhrase how-to', role: 'nurse',
+    turns: [{ q: 'How do I build a SmartPhrase with a SmartList in it?' }],
+  },
+  {
+    name: 'Direct question', role: 'front desk',
+    turns: [{ q: 'When is the next Epic upgrade?' }],
+  },
+];
