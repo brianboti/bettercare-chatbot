@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sophia Assistant",
-  "version": "2.7.1",
+  "version": "2.8.0",
   "description": "Sophia answers questions from the BetterCare SharePoint site, with a citation for every answer.",
   "minimum_chrome_version": "116",
   "permissions": [

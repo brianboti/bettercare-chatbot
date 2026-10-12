@@ -17,6 +17,8 @@ Changes to docs or tests alone don't need a release.
 
 ## Unreleased
 
+## [2.8.0] — 2026-10-12
+
 ### Added
 - Every answer opens with what Sophia is assuming ("You're using ProcDoc in
   Epic"), shown in an "Assuming" box above the answer, with one-tap
