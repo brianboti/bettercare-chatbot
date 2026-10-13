@@ -17,6 +17,8 @@ Changes to docs or tests alone don't need a release.
 
 ## Unreleased
 
+## [2.9.1] — 2026-10-13
+
 ### Changed
 - The admin panel now follows the Sophia design spec in its BetterCare theme:
   the spec's color tokens, type sizes, shapes and 44px controls. Saved and
