@@ -105,6 +105,10 @@ export function openStore(file) {
   const hasColumn = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
   if (!hasColumn('promotions', 'url')) db.exec('ALTER TABLE promotions ADD COLUMN url TEXT');
   if (!hasColumn('turns', 'assumptions')) db.exec('ALTER TABLE turns ADD COLUMN assumptions TEXT');
+  // Set when the person removes the question from their history. The row stays
+  // for the admin usage counts; it's gone from everything the person sees and
+  // from suggestions to others.
+  if (!hasColumn('turns', 'hidden_at')) db.exec('ALTER TABLE turns ADD COLUMN hidden_at TEXT');
 
   const q = (sql) => db.prepare(sql);
 
@@ -162,24 +166,32 @@ export function openStore(file) {
 
   /** A user's recent turns, newest first. */
   const recentTurns = (userId, limit = 5) =>
-    q('SELECT * FROM turns WHERE user_id = ? AND error IS NULL ORDER BY at DESC, id DESC LIMIT ?').all(userId, limit).map(turnRow);
+    q('SELECT * FROM turns WHERE user_id = ? AND error IS NULL AND hidden_at IS NULL ORDER BY at DESC, id DESC LIMIT ?').all(userId, limit).map(turnRow);
 
   /** Conversations for the history panel, newest first. */
   function conversations(userId, limit = 50) {
     return q(`SELECT conversation_id, MIN(at) AS started, MAX(at) AS last, COUNT(*) AS n,
-        (SELECT question FROM turns t2 WHERE t2.conversation_id = t.conversation_id AND t2.user_id = t.user_id ORDER BY id LIMIT 1) AS first
-      FROM turns t WHERE user_id = ? GROUP BY conversation_id ORDER BY last DESC LIMIT ?`)
+        (SELECT question FROM turns t2 WHERE t2.conversation_id = t.conversation_id AND t2.user_id = t.user_id AND t2.hidden_at IS NULL ORDER BY id LIMIT 1) AS first
+      FROM turns t WHERE user_id = ? AND hidden_at IS NULL GROUP BY conversation_id ORDER BY last DESC LIMIT ?`)
       .all(userId, limit)
       .map((r) => ({ conversationId: r.conversation_id, startedAt: r.started, lastAt: r.last, turns: r.n, title: r.first }));
   }
 
   const conversation = (userId, conversationId) =>
-    q('SELECT * FROM turns WHERE user_id = ? AND conversation_id = ? ORDER BY id').all(userId, conversationId).map(turnRow);
+    q('SELECT * FROM turns WHERE user_id = ? AND conversation_id = ? AND hidden_at IS NULL ORDER BY id').all(userId, conversationId).map(turnRow);
+
+  /** Remove one conversation (or, with no id, every one) from a person's history. Returns how many questions. */
+  function hideHistory(userId, conversationId = null) {
+    const r = conversationId
+      ? q('UPDATE turns SET hidden_at = ? WHERE user_id = ? AND conversation_id = ? AND hidden_at IS NULL').run(now(), userId, conversationId)
+      : q('UPDATE turns SET hidden_at = ? WHERE user_id = ? AND hidden_at IS NULL').run(now(), userId);
+    return Number(r.changes);
+  }
 
   /** How often a user asked about each topic lately, with when they last did. */
   function userTopics(userId, days = 60) {
     const counts = new Map();
-    for (const t of q('SELECT topics, at FROM turns WHERE user_id = ? AND at >= ? AND error IS NULL ORDER BY at').all(userId, since(days))) {
+    for (const t of q('SELECT topics, at FROM turns WHERE user_id = ? AND at >= ? AND error IS NULL AND hidden_at IS NULL ORDER BY at').all(userId, since(days))) {
       for (const name of j(t.topics, [])) {
         const c = counts.get(name) || { topic: name, count: 0, lastAt: null };
         c.count++; c.lastAt = t.at;
@@ -197,7 +209,7 @@ export function openStore(file) {
     if (!role) return [];
     const mine = new Set(userTopics(userId, 365).map((t) => t.topic));
     const rows = q(`SELECT t.question, t.topics, t.user_id FROM turns t JOIN users u ON u.id = t.user_id
-      WHERE u.role = ? AND t.user_id != ? AND t.at >= ? AND t.error IS NULL AND t.low_confidence = 0
+      WHERE u.role = ? AND t.user_id != ? AND t.at >= ? AND t.error IS NULL AND t.low_confidence = 0 AND t.hidden_at IS NULL
         AND (t.feedback IS NULL OR t.feedback > 0)`).all(role, userId, since(days));
     const groups = new Map();
     for (const r of rows) {
@@ -415,7 +427,7 @@ export function openStore(file) {
 
   return {
     db, getUser, saveUser, touchUser, listUsers,
-    addTurn, getTurn, recentTurns, conversations, conversation, userTopics, peerQuestions, setFeedback,
+    addTurn, getTurn, recentTurns, conversations, conversation, hideHistory, userTopics, peerQuestions, setFeedback,
     addEvent, addLlmCall, promotionsActedOn, listPromotions, savePromotion, promotionsFor, insights, clearDemo,
     close: () => db.close(),
   };

@@ -17,6 +17,13 @@ Changes to docs or tests alone don't need a release.
 
 ## Unreleased
 
+### Added
+- People can remove questions from their history: a × on each conversation
+  in "Your questions" removes it, and "Clear all" (confirmed in place)
+  removes every one. Removed questions no longer show in history, "Pick up
+  where you left off", personal suggestions, or suggestions to others in the
+  same role. They still count in the admin usage numbers.
+
 ## [2.8.0] — 2026-10-12
 
 ### Added

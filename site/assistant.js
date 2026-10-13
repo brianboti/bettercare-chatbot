@@ -371,20 +371,62 @@ async function showHistory() {
   const list = thread.querySelector('.bc-history');
   list.lastChild.remove();
   const convs = h?.conversations || [];
-  if (!convs.length) { list.append(el('p', { class: 'bc-muted', text: "Nothing yet. Questions you ask show up here, so you can come back to an answer." })); return; }
+  const empty = () => el('p', { class: 'bc-muted', text: "Nothing yet. Questions you ask show up here, so you can come back to an answer." });
+  if (!convs.length) { list.append(empty()); return; }
+
+  // Clear all, confirmed in place (no browser dialog).
+  const clear = el('div', { class: 'bc-history-clear' });
+  const askClear = () => clear.replaceChildren(el('button', { type: 'button', class: 'bc-link-btn', text: 'Clear all', onclick: () => {
+    clear.replaceChildren(
+      el('span', { text: 'Remove every question?' }),
+      el('button', { type: 'button', class: 'bc-link-btn bc-danger', text: 'Remove all', onclick: async () => {
+        if (!(await removeHistory({ all: true }))) return;
+        list.querySelectorAll('h4, .bc-history-list, .bc-history-clear').forEach((n) => n.remove());
+        list.append(empty());
+      } }),
+      el('button', { type: 'button', class: 'bc-link-btn', text: 'Cancel', onclick: askClear }),
+    );
+    clear.querySelector('.bc-danger').focus();
+  } }));
+  askClear();
+  list.querySelector('.bc-history-head').append(clear);
 
   // Group by day.
   let group = null, label = null;
   for (const c of convs) {
     const l = dayLabel(c.lastAt).replace(/^Today.*/, 'Today');
     if (l !== label) { label = l; group = el('ul', { class: 'bc-history-list' }); list.append(el('h4', { text: l }), group); }
-    group.append(el('li', {}, [el('button', {
+    const row = el('li', { class: 'bc-history-row' }, [el('button', {
       type: 'button', class: 'bc-history-item', onclick: () => openConversation(c.conversationId),
     }, [
       el('span', { text: c.title }),
       el('small', { text: `${c.turns} question${c.turns > 1 ? 's' : ''}` }),
-    ])]));
+    ]), el('button', {
+      type: 'button', class: 'bc-history-x', title: 'Remove from history', 'aria-label': `Remove from history: ${c.title}`, svg: ICON.close,
+      onclick: async () => {
+        if (!(await removeHistory({ conversationId: c.conversationId }))) return;
+        const ul = row.parentElement;
+        row.remove();
+        if (!ul.children.length) { ul.previousElementSibling.remove(); ul.remove(); }
+        if (!list.querySelector('.bc-history-list')) { list.querySelector('.bc-history-clear')?.remove(); list.append(empty()); }
+      },
+    })]);
+    group.append(row);
   }
+}
+
+/** Remove one conversation ({conversationId}) or all ({all: true}) from the person's history. */
+async function removeHistory(body) {
+  const r = await api('/api/history/remove', { body });
+  if (!r) return false;
+  welcomeData = null;     // "Pick up where you left off" changes
+  if (body.all || body.conversationId === state.conversationId) {
+    ctl?.abort();
+    state.turns = [];
+    state.conversationId = newConversationId();
+    save();
+  }
+  return true;
 }
 
 async function openConversation(conversationId) {

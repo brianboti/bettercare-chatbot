@@ -149,3 +149,21 @@ test('Claude spend: priced per call, cache reads cheap, fallback attempts at the
   s.clearDemo();
   assert.equal(s.insights({ days: 7 }).spend.calls, 4);
 });
+
+test('removing questions from history hides them from the person, not from admin counts', () => {
+  const s = fixture();
+  s.addTurn({ userId: 'me', conversationId: 'a', at: ago(2), question: 'Keep me', topics: ['Abridge'] });
+  s.addTurn({ userId: 'me', conversationId: 'b', at: ago(1), question: 'Remove me', topics: ['Training'] });
+  s.addTurn({ userId: 'n1', conversationId: 'c', at: ago(1), question: 'Not mine', topics: [] });
+  assert.equal(s.hideHistory('doc', 'b'), 0, "can't remove someone else's conversation");
+  assert.equal(s.hideHistory('me', 'b'), 1);
+  assert.deepEqual(s.conversations('me').map((c) => c.conversationId), ['a']);
+  assert.equal(s.conversation('me', 'b').length, 0);
+  assert.deepEqual(s.recentTurns('me').map((t) => t.question), ['Keep me']);
+  assert.deepEqual(s.userTopics('me').map((t) => t.topic), ['Abridge']);
+  assert.equal(s.peerQuestions('nurse', 'n2').some((p) => p.question === 'Remove me'), false, 'not suggested to others');
+  assert.equal(s.hideHistory('me'), 1);
+  assert.equal(s.conversations('me').length, 0);
+  assert.equal(s.conversations('n1').length, 1, "clearing mine leaves others' history");
+  assert.equal(s.insights({ days: 30 }).totals.questions, 3, 'still counted for admins');
+});

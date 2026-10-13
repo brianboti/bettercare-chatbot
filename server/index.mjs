@@ -200,6 +200,13 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { user, ...w }, h);
     }
 
+    if (url.pathname === '/api/history/remove' && req.method === 'POST') {
+      const { user } = currentUser(req);
+      const b = await readBody(req, 2000);
+      if (!user || !(b.all === true || (typeof b.conversationId === 'string' && b.conversationId))) throw new ChatError('BAD_REQUEST', 'conversationId or all required');
+      return json(res, 200, { removed: store.hideHistory(user.id, b.all === true ? null : b.conversationId) }, h);
+    }
+
     if (url.pathname === '/api/history' || url.pathname.startsWith('/api/history/')) {
       const { user } = currentUser(req);
       if (!user) return json(res, 200, { conversations: [] }, h);
