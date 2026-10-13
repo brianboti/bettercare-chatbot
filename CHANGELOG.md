@@ -17,6 +17,8 @@ Changes to docs or tests alone don't need a release.
 
 ## Unreleased
 
+## [2.9.0] — 2026-10-13
+
 ### Added
 - People can remove questions from their history: a × on each conversation
   in "Your questions" removes it, and "Clear all" (confirmed in place)
