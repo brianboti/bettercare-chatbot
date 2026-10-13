@@ -11,7 +11,7 @@ const tip = document.getElementById('tip');
 const daysSel = document.getElementById('days');
 const roleSel = document.getElementById('role');
 
-const state = { userId: readUserId(), days: 30, role: '', data: null, roles: new Map(), editing: null, flash: null, fbFilter: 'all', pages: new Map() };
+const state = { userId: readUserId(), days: 30, role: '', data: null, roles: new Map(), editing: null, fbFilter: 'all', pages: new Map() };
 
 // ---------------------------------------------------------------- utilities
 
@@ -64,6 +64,33 @@ const roleLabel = (r) => state.roles.get(r) || (r === 'unknown' || !r ? 'Unknown
 const fmtWhen = (iso) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 const fmtDay = (d) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 const fmtDate = (d) => (d ? fmtDay(d) : null);
+
+// ---------------------------------------------------------------- toasts
+
+// Design spec §6: stacked at the top right, a surface card that animates in.
+const toastStack = el('div', { class: 'toasts', role: 'status', 'aria-live': 'polite' });
+document.body.append(toastStack);
+function toast(text, { ok = true } = {}) {
+  const t = el('div', { class: `toast${ok ? '' : ' toast--err'}` }, [el('b', { text: ok ? 'Done' : 'Problem' }), el('span', { text })]);
+  const close = () => t.remove();
+  t.addEventListener('click', close);
+  toastStack.append(t);
+  setTimeout(close, ok ? 4000 : 8000);
+}
+
+// ---------------------------------------------------------------- privacy curtain
+
+// Design spec §6: when the window loses focus, people's questions are hidden
+// behind "Protected workspace" until it's back.
+const curtain = el('div', { class: 'curtain', hidden: true, role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Protected workspace' }, [
+  el('span', { class: 'mark', 'aria-hidden': 'true', text: 'S' }),
+  el('h2', { text: 'Protected workspace' }),
+  el('p', { text: 'Hidden while this window is in the background. Click to continue.' }),
+]);
+document.body.append(curtain);
+addEventListener('blur', () => { curtain.hidden = false; });
+addEventListener('focus', () => { curtain.hidden = true; });
+curtain.addEventListener('click', () => { curtain.hidden = true; });
 
 // ---------------------------------------------------------------- tooltip
 
@@ -606,9 +633,7 @@ function promotions(d) {
     'Nothing pushed yet. Add something with the form.',
     { page: 'promotions', pageSize: 8 },
   );
-  const flash = state.flash ? el('p', { class: `msg ${state.flash.ok ? 'ok' : 'err'}`, role: 'status', text: state.flash.text }) : null;
-  state.flash = null;
-  return el('div', { class: 'promo-grid' }, [el('div', {}, [flash, confirmSlot, table]), promoForm()]);
+  return el('div', { class: 'promo-grid' }, [el('div', {}, [confirmSlot, table]), promoForm()]);
 }
 
 function promoForm() {
@@ -696,11 +721,11 @@ async function savePromo(p, okText, msgEl) {
   try {
     await api('/api/admin/promotions', { method: 'POST', body: JSON.stringify(body) });
     state.editing = null;
-    state.flash = { ok: true, text: okText };
     await load();
+    toast(okText);
   } catch (e) {
     if (msgEl) { msgEl.className = 'msg err'; msgEl.textContent = `Couldn't save: ${e.message}`; }
-    else { state.flash = { ok: false, text: `Couldn't save: ${e.message}` }; render(); }
+    else toast(`Couldn't save: ${e.message}`, { ok: false });
   }
 }
 

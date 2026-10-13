@@ -17,6 +17,13 @@ Changes to docs or tests alone don't need a release.
 
 ## Unreleased
 
+### Changed
+- The admin panel now follows the Sophia design spec in its BetterCare theme:
+  the spec's color tokens, type sizes, shapes and 44px controls. Saved and
+  failed changes show as toasts at the top right, and the panel hides
+  people's questions behind "Protected workspace" when the window is in the
+  background.
+
 ## [2.9.0] — 2026-10-13
 
 ### Added
