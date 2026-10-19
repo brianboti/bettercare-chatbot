@@ -17,6 +17,8 @@ Changes to docs or tests alone don't need a release.
 
 ## Unreleased
 
+## [2.10.0] — 2026-10-19
+
 ### Added
 - Tests for every module: about 290 unit tests (`npm test`), API checks of
   every server route against a throwaway server (`npm run test:integration`),
