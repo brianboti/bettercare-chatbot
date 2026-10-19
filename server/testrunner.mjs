@@ -7,10 +7,9 @@
 
 import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
-import { resolve, basename } from 'node:path';
+import { resolve, basename, relative } from 'node:path';
 import { ROOT } from './corpus.mjs';
 
-const TEST_DIR = resolve(ROOT, 'test');
 const OUT_DIR = resolve(ROOT, 'data/eval');
 const TIMEOUT_MS = 10 * 60_000;
 
@@ -20,7 +19,24 @@ export const SUITES = [
     label: 'Unit tests',
     description: 'Checks each part of the server on its own: the database, suggestion chips, topic tagging, and the off-topic rule. No network, no AI model.',
     cost: 'Free · a few seconds',
-    args: () => ['--test', '--test-reporter=./tools/test-reporter-json.mjs', ...testFiles().map((f) => `test/${f}`)],
+    files: () => testFiles('test'),
+    args: (files) => ['--test', '--test-reporter=./tools/test-reporter-json.mjs', ...files],
+  },
+  {
+    key: 'integration',
+    label: 'API checks',
+    description: "Starts a private copy of the server and calls it the way the site and extension do: asking, history, feedback, and who may see what. No AI model.",
+    cost: 'Free · a few seconds',
+    files: () => testFiles('test/integration'),
+    args: (files) => ['--test', '--test-reporter=./tools/test-reporter-json.mjs', ...files],
+  },
+  {
+    key: 'e2e',
+    label: 'End-to-end',
+    description: 'Drives the BetterCare site in a real (hidden) browser like a person would: the introduction, asking and rating, history, and the admin panel. No AI model.',
+    cost: 'Free · about a minute',
+    files: () => testFiles('test/e2e'),
+    args: (files) => ['--test', '--test-concurrency=1', '--test-reporter=./tools/test-reporter-json.mjs', ...files],
   },
   {
     key: 'retrieval',
@@ -47,14 +63,17 @@ export const SUITES = [
 
 const runs = new Map(); // key -> run
 
-function testFiles() {
-  return readdirSync(TEST_DIR).filter((f) => f.endsWith('.test.mjs')).sort();
+/** The *.test.mjs files directly in a folder, as paths from the project root. */
+export function testFiles(dir) {
+  try {
+    return readdirSync(resolve(ROOT, dir)).filter((f) => f.endsWith('.test.mjs')).sort().map((f) => `${dir}/${f}`);
+  } catch { return []; }
 }
 
-/** The "// Covers: …" first line of a test file. */
-function fileDescription(file) {
+/** The "// Covers: …" first line of a test file (a path from the project root). */
+export function fileDescription(file) {
   try {
-    const first = readFileSync(resolve(TEST_DIR, file), 'utf8').split('\n', 1)[0];
+    const first = readFileSync(resolve(ROOT, file), 'utf8').split('\n', 1)[0];
     return first.startsWith('// Covers:') ? first.slice(10).trim() : '';
   } catch { return ''; }
 }
@@ -74,10 +93,10 @@ function loadLast(key) {
 }
 
 /** Nest node:test results: a test's subtests are reported just before it, one level deeper. */
-function unitGroups(lines) {
+export function unitGroups(lines) {
   const byFile = new Map();
   for (const t of lines) {
-    const f = t.file ? basename(t.file) : 'other';
+    const f = t.file ? relative(ROOT, t.file) : 'other';
     const list = byFile.get(f) || byFile.set(f, []).get(f);
     const children = [];
     while (list.length && list[list.length - 1].nesting > t.nesting) children.unshift(list.pop());
@@ -88,11 +107,11 @@ function unitGroups(lines) {
     children: t.children.length ? t.children.map(toCase) : undefined,
   });
   return [...byFile.entries()].map(([file, list]) => ({
-    name: file, description: fileDescription(file), cases: list.map(toCase),
+    name: basename(file), description: fileDescription(file), cases: list.map(toCase),
   }));
 }
 
-function countCases(groups) {
+export function countCases(groups) {
   let passed = 0, failed = 0;
   const walk = (c) => { if (c.children?.length) c.children.forEach(walk); else if (c.pass) passed++; else failed++; };
   groups.forEach((g) => g.cases.forEach(walk));
@@ -107,18 +126,21 @@ export function startRun(key) {
   const suite = SUITES.find((s) => s.key === key);
   if (!suite) return { error: 'unknown suite' };
   if (runs.get(key)?.status === 'running') return { run: runs.get(key) };
+  // node --test with no files would run every test it can find.
+  const files = suite.files?.();
+  if (files && !files.length) return { error: `no test files for ${suite.label}` };
 
   const run = { status: 'running', startedAt: new Date().toISOString(), finishedAt: null, progress: { done: 0 }, summary: null, metrics: [], groups: [], log: '' };
   runs.set(key, run);
 
   // BACKUP_DISABLED: an eval measures the configured Claude models, never a silent switch to the backup.
-  const child = spawn(process.execPath, ['--env-file-if-exists=.env', ...suite.args()], { cwd: ROOT, env: { ...process.env, BACKUP_DISABLED: '1' } });
+  const child = spawn(process.execPath, ['--env-file-if-exists=.env', ...suite.args(files)], { cwd: ROOT, env: { ...process.env, BACKUP_DISABLED: '1' } });
   const unitLines = [];
   let out = '', err = '', result = null;
   const timer = setTimeout(() => child.kill('SIGTERM'), TIMEOUT_MS);
 
   const onLine = (line) => {
-    if (key === 'unit') {
+    if (suite.files) {
       try { unitLines.push(JSON.parse(line)); run.progress.done = unitLines.length; } catch { /* not ours */ }
     } else if (line.startsWith('@@RESULT ')) {
       try { result = JSON.parse(line.slice(9)); } catch { /* malformed */ }
@@ -139,7 +161,7 @@ export function startRun(key) {
     if (out) onLine(out);
     run.finishedAt = new Date().toISOString();
     run.durationMs = Date.parse(run.finishedAt) - Date.parse(run.startedAt);
-    if (key === 'unit') run.groups = unitGroups(unitLines);
+    if (suite.files) run.groups = unitGroups(unitLines);
     else if (result) { run.groups = result.groups; run.metrics = result.metrics || []; }
     run.summary = countCases(run.groups);
     const crashed = !run.summary.total || (code !== 0 && !run.summary.failed);

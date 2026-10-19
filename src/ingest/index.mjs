@@ -15,7 +15,7 @@
 
 import { readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { extract } from '../extract.mjs';
 import { ingestPages } from './pages.mjs';
 import { ingestDocuments } from './documents.mjs';
@@ -29,7 +29,7 @@ const log = (...a) => console.log(...a);
 
 // The site footer shows on every page but isn't part of any page's content
 // (or the export), so it's indexed from what the live site displays.
-const SITE_FOOTER = {
+export const SITE_FOOTER = {
   id: 'site:footer',
   sourceId: 'site:footer',
   sourceType: 'page',
@@ -49,8 +49,7 @@ const SITE_FOOTER = {
   meta: {},
 };
 
-function ingestLists() {
-  const dir = resolve(SITE_DIR, 'lists');
+export function ingestLists(dir = resolve(SITE_DIR, 'lists')) {
   const corpus = readdirSync(dir).map((f) => {
     const l = JSON.parse(readFileSync(resolve(dir, f), 'utf8'));
     return { list: l.list, id: l.id, items: l.items };
@@ -90,7 +89,7 @@ function ingestLists() {
  * that shows it (found by its title appearing in that page's text), so a
  * citation opens where a user would actually see it.
  */
-function linkListRowsToPages(listChunks, pageChunks) {
+export function linkListRowsToPages(listChunks, pageChunks) {
   const pageText = new Map();
   for (const c of pageChunks) {
     pageText.set(c.sourceId, `${pageText.get(c.sourceId) || ''}\n${c.text.toLowerCase()}`);
@@ -174,4 +173,6 @@ function count(arr, key) {
   return m;
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}

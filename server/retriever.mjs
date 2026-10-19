@@ -88,10 +88,16 @@ class BM25 {
 
 // ---------------------------------------------------------------- index
 
+/**
+ * @param {object[]} chunks
+ * @param {{ log?: Function, vectors?: Map<string, Float32Array>, embedQuery?: (q: string) => Promise<Float32Array> }} [opts]
+ *   `vectors` and `embedQuery` replace the local embedding model (tests pass fake vectors).
+ */
 export async function buildRetriever(chunks, opts = {}) {
   const titleIdx = new BM25(chunks.map((c) => tokenize([c.title, ...(c.headingPath || [])].join(' '))));
   const bodyIdx = new BM25(chunks.map((c) => tokenize(c.indexText)));
-  const vectors = await embedChunks(chunks, opts);
+  const vectors = opts.vectors || await embedChunks(chunks, opts);
+  const queryVector = opts.embedQuery || embedQuery;
   const vecs = chunks.map((c) => vectors.get(c.id));
   const facts = buildFacts(chunks);
   const cos = (a, b) => { let d = 0; for (let j = 0; j < a.length; j++) d += a[j] * b[j]; return d; };
@@ -109,7 +115,7 @@ export async function buildRetriever(chunks, opts = {}) {
   }
 
   async function vector(query, n) {
-    const q = await embedQuery(query);
+    const q = await queryVector(query);
     const scored = vecs.map((v, i) => {
       let dot = 0;
       for (let j = 0; j < v.length; j++) dot += v[j] * q[j];

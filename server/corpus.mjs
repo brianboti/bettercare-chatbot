@@ -49,11 +49,12 @@ function facets(m = {}) {
   return out;
 }
 
-export function loadChunks() {
-  if (!existsSync(CHUNKS_FILE)) {
-    throw new Error(`No corpus at ${CHUNKS_FILE}. Run: npm run ingest`);
+/** The corpus with each chunk's index text. `file` defaults to data/index/chunks.json. */
+export function loadChunks(file = CHUNKS_FILE) {
+  if (!existsSync(file)) {
+    throw new Error(`No corpus at ${file}. Run: npm run ingest`);
   }
-  const raw = JSON.parse(readFileSync(CHUNKS_FILE, 'utf8'));
+  const raw = JSON.parse(readFileSync(file, 'utf8'));
   return raw.map((c) => {
     const where = [c.title, ...(c.headingPath || [])].filter(Boolean).join(' > ');
     // Header lines give short chunks ("Beaker — Lab System") enough context to

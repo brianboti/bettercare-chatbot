@@ -7,9 +7,8 @@
 // with where to get human help (the Health IT Help Desk).
 
 import { appendFileSync, mkdirSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname } from 'node:path';
 import { config } from './config.mjs';
-import { ROOT } from './corpus.mjs';
 import { PROMPT_VERSION, buildUserTurn } from './prompt.mjs';
 import { VERSION } from './version.mjs';
 import { llmAvailable, rewriteQuery, streamAnswer, Anthropic } from './llm.mjs';
@@ -21,7 +20,6 @@ import { tagTopics } from './topics.mjs';
 import { describePerson } from './personalize.mjs';
 import { orderByRecency } from './recency.mjs';
 
-const LOG_DIR = resolve(ROOT, 'data/logs');
 
 export class ChatError extends Error {
   constructor(code, message, status = 400) { super(message); this.code = code; this.status = status; }
@@ -222,8 +220,8 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
   } finally {
     log.latencyMs = Date.now() - t0;
     try {
-      mkdirSync(LOG_DIR, { recursive: true });
-      appendFileSync(resolve(LOG_DIR, 'chat.jsonl'), `${JSON.stringify(log)}\n`);
+      mkdirSync(dirname(config.CHAT_LOG), { recursive: true });
+      appendFileSync(config.CHAT_LOG, `${JSON.stringify(log)}\n`);
     } catch { /* logging must never break a turn */ }
   }
 }

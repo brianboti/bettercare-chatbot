@@ -26,3 +26,7 @@ test('package.json, the extension and the changelog agree on the version', () =>
   assert.equal(manifest.version, VERSION);
   assert.ok(readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8').includes(`## [${VERSION}]`));
 });
+
+test('the version is MAJOR.MINOR.PATCH', () => {
+  assert.match(VERSION, /^\d+\.\d+\.\d+$/);
+});

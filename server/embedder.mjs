@@ -41,18 +41,19 @@ const hashOf = (s) => createHash('sha256').update(s).digest('hex').slice(0, 16);
 /**
  * Vectors for every chunk, reusing the on-disk cache where the model and the
  * indexed text are unchanged. Returns Map<id, Float32Array>.
+ * `cacheFile` and `embedTexts` default to the real cache and model (tests swap them).
  */
-export async function embedChunks(chunks, { log = () => {} } = {}) {
+export async function embedChunks(chunks, { log = () => {}, cacheFile = CACHE, embedTexts = embed } = {}) {
   let cache = { model: null, items: {} };
-  if (existsSync(CACHE)) {
-    try { cache = JSON.parse(readFileSync(CACHE, 'utf8')); } catch { /* rebuild */ }
+  if (existsSync(cacheFile)) {
+    try { cache = JSON.parse(readFileSync(cacheFile, 'utf8')); } catch { /* rebuild */ }
   }
   if (cache.model !== config.EMBEDDING_MODEL) cache = { model: config.EMBEDDING_MODEL, items: {} };
 
   const todo = chunks.filter((c) => cache.items[c.id]?.h !== hashOf(c.indexText));
   if (todo.length) {
     log(`embedding ${todo.length} of ${chunks.length} chunks with ${config.EMBEDDING_MODEL}…`);
-    const vecs = await embed(todo.map((c) => c.indexText));
+    const vecs = await embedTexts(todo.map((c) => c.indexText));
     todo.forEach((c, i) => {
       cache.items[c.id] = { h: hashOf(c.indexText), v: Array.from(vecs[i], (x) => +x.toFixed(5)) };
     });
@@ -63,7 +64,7 @@ export async function embedChunks(chunks, { log = () => {} } = {}) {
   let pruned = 0;
   for (const id of Object.keys(cache.items)) if (!live.has(id)) { delete cache.items[id]; pruned++; }
 
-  if (todo.length || pruned) writeFileSync(CACHE, JSON.stringify(cache));
+  if (todo.length || pruned) writeFileSync(cacheFile, JSON.stringify(cache));
 
   return new Map(chunks.map((c) => [c.id, Float32Array.from(cache.items[c.id].v)]));
 }

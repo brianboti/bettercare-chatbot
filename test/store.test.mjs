@@ -167,3 +167,98 @@ test('removing questions from history hides them from the person, not from admin
   assert.equal(s.conversations('n1').length, 1, "clearing mine leaves others' history");
   assert.equal(s.insights({ days: 30 }).totals.questions, 3, 'still counted for admins');
 });
+
+test('people: last-seen time, and listing everyone or only demo people by name', () => {
+  const s = fixture();
+  assert.equal(s.getUser('me').lastSeenAt, null);
+  s.touchUser('me');
+  assert.ok(s.getUser('me').lastSeenAt);
+  s.saveUser('zed', { name: 'Zed', demo: true, isAdmin: true });
+  assert.equal(s.listUsers().length, 5);
+  assert.deepEqual(s.listUsers({ demo: true }).map((u) => [u.id, u.isAdmin, u.demo]), [['zed', true, true]]);
+  assert.equal(s.getUser(null), null);
+});
+
+test('a saved turn reads back with every field; failed answers are not "recent"', () => {
+  const s = fixture();
+  const id = s.addTurn({
+    userId: 'me', conversationId: 'c', at: ago(1), question: 'q', rewritten: 'q2', intent: 'howto', topics: ['Abridge'],
+    answer: 'a [1]', sources: [{ title: 'S' }], suggestions: ['next?'], confidence: 0.8, lowConfidence: true, mode: 'claude',
+    latencyMs: 1200, assumptions: [{ text: "You're a nurse", fix: "I'm not a nurse" }],
+  });
+  const t = s.getTurn(id);
+  assert.deepEqual(
+    [t.rewritten, t.intent, t.topics, t.sources, t.suggestions, t.confidence, t.lowConfidence, t.mode, t.latencyMs, t.assumptions],
+    ['q2', 'howto', ['Abridge'], [{ title: 'S' }], ['next?'], 0.8, true, 'claude', 1200, [{ text: "You're a nurse", fix: "I'm not a nurse" }]],
+  );
+  s.addTurn({ userId: 'me', conversationId: 'c', at: ago(0), question: 'broke', error: 'TIMEOUT' });
+  assert.deepEqual(s.recentTurns('me').map((x) => x.question), ['q']);
+  assert.deepEqual(s.getTurn(s.addTurn({ userId: 'me', conversationId: 'c', question: 'bare' })).assumptions, []);
+  assert.ok(!s.getTurn(9999), 'no such turn');
+});
+
+test('normalized questions ignore case and punctuation', () => {
+  assert.equal(normalizeQuestion('  Where is the HELP desk?!  '), 'where is the help desk');
+});
+
+test('pushed content: edits keep the row, and future start dates wait', () => {
+  const s = fixture();
+  const p = s.savePromotion({ title: 'Old title', prompt: 'p', roles: ['nurse'] }, 'admin1');
+  assert.equal(p.createdBy, 'admin1');
+  const edited = s.savePromotion({ ...p, title: 'New title', priority: 3 });
+  assert.equal(edited.id, p.id);
+  assert.deepEqual([edited.title, edited.priority, edited.roles], ['New title', 3, ['nurse']]);
+  assert.equal(s.listPromotions().length, 1);
+  s.savePromotion({ title: 'Later', prompt: 'p', starts: '2999-01-01' });
+  assert.deepEqual(s.promotionsFor('nurse').map((x) => x.title), ['New title']);
+  assert.deepEqual(s.promotionsFor('physician'), []);
+});
+
+test('insights: questions per day, role and topic, and the sources people opened', () => {
+  const s = fixture();
+  const a = s.addTurn({ userId: 'me', conversationId: 'c', at: ago(1), question: 'q1', topics: ['Abridge', 'Training'] });
+  s.addTurn({ userId: 'doc', conversationId: 'd', at: ago(1), question: 'q2', topics: ['Abridge'] });
+  s.addTurn({ userId: 'ghost', conversationId: 'e', at: ago(2), question: 'q3', topics: [], error: 'TIMEOUT' });
+  s.addTurn({ userId: 'me', conversationId: 'old', at: ago(60), question: 'too old', topics: [] });
+  s.addEvent({ userId: 'me', type: 'citation_click', turnId: a, ref: 'x', data: { title: 'Abridge FAQ', kind: 'faq', url: 'u' } });
+  s.addEvent({ userId: 'doc', type: 'citation_click', ref: 'Abridge FAQ' });
+  const i = s.insights({ days: 30 });
+  assert.equal(i.totals.questions, 3);
+  assert.equal(i.totals.users, 3);
+  assert.equal(i.totals.errors, 1);
+  assert.deepEqual(i.byDay.map((d) => d.count).reduce((x, y) => x + y), 3);
+  assert.deepEqual(i.byRole.map((r) => `${r.role}:${r.count}`).sort(), ['nurse:1', 'physician:1', 'unknown:1'], 'no role on file counts as unknown');
+  assert.deepEqual(i.topics[0], { topic: 'Abridge', count: 2 });
+  assert.deepEqual(i.topicRole.find((x) => x.topic === 'Training'), { topic: 'Training', role: 'nurse', count: 1 });
+  assert.deepEqual(i.opened, [{ title: 'Abridge FAQ', kind: 'faq', url: 'u', count: 2 }]);
+  assert.equal(i.trouble.find((t) => t.question === 'q3').reasons[0], 'error');
+  assert.equal(i.demoData, false);
+});
+
+test('insights: a quick follow-up after opening a source is not "asked again"', () => {
+  const s = fixture();
+  const a = s.addTurn({ userId: 'me', conversationId: 'c', at: ago(1), question: 'Haiku setup', topics: ['Haiku & Canto'] });
+  s.addTurn({ userId: 'me', conversationId: 'c', at: ago(1, 1), question: 'Haiku on Android', topics: ['Haiku & Canto'] });
+  s.addEvent({ userId: 'me', type: 'citation_click', turnId: a, ref: 'x' });
+  assert.equal(s.insights().totals.rephrased, 0);
+  // Ten minutes apart is a new question, not a rephrase.
+  s.addTurn({ userId: 'doc', conversationId: 'd', at: ago(1), question: 'Abridge', topics: ['Abridge'] });
+  s.addTurn({ userId: 'doc', conversationId: 'd', at: ago(1, 10), question: 'Abridge again', topics: ['Abridge'] });
+  assert.equal(s.insights().totals.rephrased, 0);
+});
+
+test('demo data is flagged in insights and cleared without touching real data', () => {
+  const s = fixture();
+  s.saveUser('demo1', { role: 'nurse', demo: true });
+  s.addTurn({ userId: 'demo1', conversationId: 'x', question: 'demo q', demo: true });
+  s.addTurn({ userId: 'me', conversationId: 'y', question: 'real q' });
+  s.addEvent({ userId: 'demo1', type: 'history_open', demo: true });
+  s.savePromotion({ title: 'Demo promo', prompt: 'p', demo: true });
+  assert.equal(s.insights().demoData, true);
+  s.clearDemo();
+  assert.equal(s.insights().demoData, false);
+  assert.equal(s.getUser('demo1'), null);
+  assert.equal(s.insights().totals.questions, 1);
+  assert.equal(s.listPromotions().length, 0);
+  assert.ok(s.getUser('me'));
+});

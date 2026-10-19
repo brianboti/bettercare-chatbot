@@ -69,6 +69,8 @@ export const config = Object.freeze({
 
   // Users, question history, feedback, pushed content (SQLite).
   DB_FILE: env.SOPHIA_DB || fileURLToPath(new URL('../data/sophia.db', import.meta.url)),
+  // Per-turn diagnostics (JSON lines). Tests point it at a temp file.
+  CHAT_LOG: env.CHAT_LOG || fileURLToPath(new URL('../data/logs/chat.jsonl', import.meta.url)),
 
   MAX_HISTORY_TURNS: int('MAX_HISTORY_TURNS', 10),
   MAX_QUESTION_CHARS: int('MAX_QUESTION_CHARS', 2000),

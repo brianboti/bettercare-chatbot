@@ -113,6 +113,22 @@ async function plain(buf, ext) {
   return [{ heading: null, text: clean(s) }];
 }
 
+/**
+ * Is a downloaded file not the real file? When SharePoint throttles a bulk
+ * download it answers 200 OK with an HTML error page (throttleerror.js), which
+ * gets saved under the file's name. Office files are re-stamped on download,
+ * so their size can legitimately differ; an HTML body never is the real file.
+ * @param {Buffer} buf  the saved bytes
+ * @param {number} expectedSize  the size the file list reports (0/undefined: unknown)
+ * @param {string} ext  lower-case extension without the dot
+ */
+export function isIncompleteDownload(buf, expectedSize, ext) {
+  if (!expectedSize || buf.length === expectedSize) return false;
+  const htmlBody = buf.subarray(0, 64).toString('utf8').trimStart().startsWith('<');
+  const office = ['docx', 'pptx', 'xlsx'].includes(ext);
+  return !office || htmlBody;
+}
+
 const EXTRACT = { pdf, docx, pptx, xlsx, txt: plain, csv: plain, md: plain, html: plain, htm: plain, ics: plain };
 
 // ---------------------------------------------------------------- main
@@ -171,11 +187,7 @@ export async function ingestDocuments(siteDir, { cacheFile, ocrFile, log = () =>
     if (!sections) {
       try {
         const buf = readFileSync(local);
-        // Office files are re-stamped on download, so their size can differ;
-        // an HTML body is SharePoint's throttling page, never the real file.
-        const htmlBody = buf.subarray(0, 64).toString('utf8').trimStart().startsWith('<');
-        const office = ['docx', 'pptx', 'xlsx'].includes(ext);
-        if (f.size && buf.length !== f.size && (!office || htmlBody)) { report.missing.push(`${rel} (incomplete download)`); continue; }
+        if (isIncompleteDownload(buf, f.size, ext)) { report.missing.push(`${rel} (incomplete download)`); continue; }
         sections = await EXTRACT[ext](buf, ext);
         cache[key] = sections;
         if (++parsed % 25 === 0) log(`  parsed ${parsed} documents…`);

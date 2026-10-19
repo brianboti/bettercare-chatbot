@@ -9,6 +9,9 @@ import { config } from './config.mjs';
 let client = null;
 const openai = () => (client ||= new OpenAI());
 
+/** Test only: use this client instead of a real one (null goes back to the real one). */
+export function _setClientForTest(c) { client = c; }
+
 export const openaiConfigured = () => Boolean(process.env.OPENAI_API_KEY);
 
 /** OpenAI usage -> the fields pricing.mjs reads (OpenAI counts cached tokens inside input_tokens). */

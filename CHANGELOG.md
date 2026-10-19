@@ -17,6 +17,17 @@ Changes to docs or tests alone don't need a release.
 
 ## Unreleased
 
+### Added
+- Tests for every module: about 290 unit tests (`npm test`), API checks of
+  every server route against a throwaway server (`npm run test:integration`),
+  and end-to-end tests that drive the site and the Sophia pane in a real
+  browser with Playwright (`npm run test:e2e`). None call an AI model or touch
+  the real database. The admin panel's Tests tab can run all three.
+- `docs/TESTING.md` (how to run and write tests) and `docs/BUG-EXAMPLES.md`
+  (three real bugs, their fixes and the tests that now catch them).
+- `CHAT_LOG` setting for where per-turn diagnostics are written (tests use a
+  temp file).
+
 ## [2.9.1] — 2026-10-13
 
 ### Changed

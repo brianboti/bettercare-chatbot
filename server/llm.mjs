@@ -3,7 +3,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from './config.mjs';
-import { openaiConfigured, openaiJson, openaiStream } from './openai.mjs';
+import { openaiConfigured, openaiJson, openaiStream, _setClientForTest as setOpenAIClient } from './openai.mjs';
 import { SYSTEM, REWRITE_SYSTEM, rewriteSchema } from './prompt.mjs';
 import { TOPIC_NAMES, cleanTopics } from './topics.mjs';
 
@@ -67,6 +67,13 @@ async function withBackup(job, claude, backup) {
     console.warn(`Claude unavailable for ${job} (${e.status || ''} ${e.message.slice(0, 120)}); using OpenAI`);
     return backup();
   }
+}
+
+/** Test only: use these clients instead of real ones, and forget any Claude cooldown. */
+export function _setClientsForTest({ anthropic: a = null, openai: o = null } = {}) {
+  client = a;
+  setOpenAIClient(o);
+  claudeDownUntil = 0;
 }
 
 function anthropic() {
