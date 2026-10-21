@@ -7,24 +7,36 @@ port: 8787
 health_path: /api/health
 resources:
   cpu: 1
-  memory_mib: 512
+  # The README asks for 1 GiB; measured locally offline: 217 MiB idle, 294 MiB after a search (SQLite).
+  memory_mib: 1024
 scaling:
   minimum: 0
   maximum: 2
 concurrency: 80
+# Programs with a Google identity token only, until Identity-Aware Proxy for people is set up (docs/SETUP.md 7h);
+# then lab-members. Meanwhile a person opens it with `gcloud run services proxy sophia-bettercare --region us-central1`.
 exposure: authenticated
 state: stateless
 dependencies: []
 gpu: false
-env: {}
-secrets: []
+env:
+  # The platform names the database FIRESTORE_DATABASE; the app reads FIRESTORE_DATABASE_ID.
+  FIRESTORE_DATABASE_ID: sophia-bettercare
+  # No OpenAI key in staging: Claude only.
+  BACKUP_DISABLED: "1"
+secrets:
+  - ANTHROPIC_API_KEY   # Secret Manager: sophia-bettercare-ANTHROPIC_API_KEY
+  - ADMIN_PASSWORD      # Secret Manager: sophia-bettercare-ADMIN_PASSWORD (the account "admin")
 tests: required
 node: '24'
-timeout_seconds: 60
+# Answers stream as server-sent events; Cloud Run ends a request (a stream included) at this limit.
+timeout_seconds: 300
+# Claude through Anthropic's API (an API key), so it needs the internet.
+egress: internet
 needs:
   buckets: []
   topics: []
-  database: none
+  database: firestore
   migrate: []
   database_auth: iam
   database_tier: standard
