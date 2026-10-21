@@ -1,3 +1,4 @@
+// Covers: The health check Fast Deploy probes before and after every release: the server starts as its image does and GET /api/health answers 200.
 // Drafted by Fast Deploy: checks that GET /api/health answers 200, the path the platform probes before and after every
 // release. It starts the service as its image does (node server/index.mjs) on a free port and stops it afterwards; node --test
 // finds it, and the platform runs it before every build.
