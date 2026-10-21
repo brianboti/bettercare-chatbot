@@ -29,6 +29,13 @@ test('defaults with an empty environment', () => {
   assert.match(config.DB_FILE, /data\/sophia\.db$/);
 });
 
+test('HOST: every interface on Google Cloud (Cloud Run, GKE, App Engine), this machine only elsewhere; HOST wins', () => {
+  assert.equal(load({ K_SERVICE: 'sophia' }).config.HOST, '0.0.0.0');
+  assert.equal(load({ KUBERNETES_SERVICE_HOST: '10.0.0.1' }).config.HOST, '0.0.0.0');
+  assert.equal(load({ GAE_SERVICE: 'default' }).config.HOST, '0.0.0.0');
+  assert.equal(load({ K_SERVICE: 'sophia', HOST: '127.0.0.1' }).config.HOST, '127.0.0.1');
+});
+
 test('numbers are read from the environment; an empty value means the default', () => {
   assert.equal(load({ PORT: '9000' }).config.PORT, 9000);
   assert.equal(load({ RETRIEVAL_TOP_K: '12', MAX_TOKENS: '100' }).config.RETRIEVAL_TOP_K, 12);

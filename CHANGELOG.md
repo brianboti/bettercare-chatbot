@@ -17,6 +17,12 @@ Changes to docs or tests alone don't need a release.
 
 ## Unreleased
 
+### Changed
+- On Google Cloud (Cloud Run, GKE, App Engine) the server listens on
+  `0.0.0.0` without being told, so it is reachable even when started with
+  plain `npm start` instead of the Docker image. Laptops still default to
+  `127.0.0.1`.
+
 ## [3.0.0] — 2026-10-21
 
 Ready to deploy on GCP (the Fast Deploy checklist): a Docker image, Firestore,

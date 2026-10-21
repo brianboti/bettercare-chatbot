@@ -72,7 +72,7 @@ Every setting is an environment variable, read in one place
 
 | Setting | Deployed value | Notes |
 |---|---|---|
-| `HOST`, `PORT` | `0.0.0.0`, `8787` | the Docker image sets both |
+| `HOST`, `PORT` | `0.0.0.0`, `8787` | the Docker image sets both; on Cloud Run, GKE or App Engine `HOST` defaults to `0.0.0.0` anyway |
 | `ANTHROPIC_API_KEY` | secret | Claude; without it, retrieval-only |
 | `OPENAI_API_KEY` | secret (optional) | backup when Claude can't be reached |
 | `DATABASE` | `firestore` | `sqlite` is for laptops and tests |

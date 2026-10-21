@@ -23,7 +23,9 @@ export const config = Object.freeze({
   SITE_URL: env.SITE_URL || 'https://uthealthsa.sharepoint.com/sites/BetterCare',
 
   PORT: int('PORT', 8787),
-  HOST: env.HOST || '127.0.0.1',
+  // On Google Cloud (Cloud Run, GKE, App Engine) listen on every interface
+  // so the platform can reach the server; on a laptop, only this machine.
+  HOST: env.HOST || (env.K_SERVICE || env.KUBERNETES_SERVICE_HOST || env.GAE_SERVICE ? '0.0.0.0' : '127.0.0.1'),
 
   // Credentials are resolved by the SDK (ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN,
   // or an `ant auth login` profile). With none, the server runs retrieval-only.
