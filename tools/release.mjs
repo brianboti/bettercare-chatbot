@@ -5,7 +5,8 @@
 //   npm run release -- minor    new features
 //   npm run release -- major    architectural changes
 //
-// Bumps the version in package.json and extension/manifest.json, turns
+// Bumps the version in package.json, package-lock.json and
+// extension/manifest.json, turns
 // "## Unreleased" into "## [X.Y.Z] — <date>" (with a fresh empty Unreleased
 // above it), commits "Release vX.Y.Z" and adds an annotated tag vX.Y.Z whose
 // message is that changelog section. Push with: git push lab main --follow-tags
@@ -57,10 +58,16 @@ function main() {
   writeFileSync(clFile, md);
   pkg.version = version;
   writeFileSync(pkgFile, `${JSON.stringify(pkg, null, 2)}\n`);
+  // The lock file names the version twice: at the top and for the root package.
+  const lockFile = resolve(ROOT, 'package-lock.json');
+  const lock = JSON.parse(readFileSync(lockFile, 'utf8'));
+  lock.version = version;
+  if (lock.packages?.['']) lock.packages[''].version = version;
+  writeFileSync(lockFile, `${JSON.stringify(lock, null, 2)}\n`);
   const manFile = resolve(ROOT, 'extension/manifest.json');
   writeFileSync(manFile, readFileSync(manFile, 'utf8').replace(/("version":\s*")[^"]*(")/, `$1${version}$2`));
 
-  git('add', 'CHANGELOG.md', 'package.json', 'extension/manifest.json');
+  git('add', 'CHANGELOG.md', 'package.json', 'package-lock.json', 'extension/manifest.json');
   git('commit', '-q', '-m', `Release v${version}`);
   // verbatim: keep the changelog's "### Fixed" headings (git would strip them as comments).
   git('tag', '-a', `v${version}`, '--cleanup=verbatim', '-m', `v${version}\n\n${notes}`);

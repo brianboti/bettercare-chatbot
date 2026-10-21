@@ -1,8 +1,8 @@
-// Covers: The client library shared by the Chrome extension and the site (extension/lib/chat-api.js): who-is-asking headers, JSON calls, search, reading the answer stream, and splitting out [n] citations.
+// Covers: The client library shared by the Chrome extension and the site (extension/lib/chat-api.js): who-is-asking headers (session token or user id), JSON calls, search, reading the answer stream, and splitting out [n] citations.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { health, userHeaders, apiJson, searchApi, streamChat, splitCitations } from '../extension/lib/chat-api.js';
+import { health, userHeaders, authHeaders, apiJson, apiRequest, searchApi, streamChat, splitCitations } from '../extension/lib/chat-api.js';
 
 // A tiny stand-in server: each path answers the way a test needs.
 const seen = [];
@@ -62,6 +62,20 @@ test('userHeaders: the header only when someone is signed in', () => {
   assert.deepEqual(userHeaders(undefined), {});
 });
 
+test('authHeaders: the session token wins over the user id; neither, no header', () => {
+  assert.deepEqual(authHeaders({ token: 'tok', userId: 'pat' }), { Authorization: 'Bearer tok' });
+  assert.deepEqual(authHeaders({ userId: 'pat' }), { 'X-Sophia-User': 'pat' });
+  assert.deepEqual(authHeaders({}), {});
+  assert.deepEqual(authHeaders(), {});
+});
+
+test('apiRequest: status and body even when the server says no; status 0 when unreachable', async () => {
+  assert.deepEqual(await apiRequest(api, '/api/fail'), { ok: false, status: 500, body: { code: 'INTERNAL' } });
+  assert.deepEqual(await apiRequest(api, '/api/thing', { token: 'tok', body: { a: 1 } }), { ok: true, status: 200, body: { echo: { a: 1 } } });
+  assert.equal(last().headers.authorization, 'Bearer tok');
+  assert.deepEqual(await apiRequest('http://127.0.0.1:1', '/api/thing'), { ok: false, status: 0, body: null });
+});
+
 test('health: the server\'s answer, or null when it is down, failing or too slow', async () => {
   assert.deepEqual(await health(api), { ok: true, version: '9.9.9' });
   assert.equal(await health(`${api}/down`), null);
@@ -109,6 +123,12 @@ test('streamChat: events in order, split chunks joined, comments and malformed d
   assert.equal(req.headers.accept, 'text/event-stream');
   assert.equal(req.headers['x-sophia-user'], 'ann');
   assert.deepEqual(JSON.parse(req.body), { messages: [{ role: 'user', content: 'hi' }], conversationId: 'conv-1' });
+});
+
+test('streamChat: a session token is sent as Authorization: Bearer', async () => {
+  await stream(api, { token: 'tok-123', conversationId: 'conv-2' });
+  assert.equal(last().headers.authorization, 'Bearer tok-123');
+  assert.equal(last().headers['x-sophia-user'], undefined);
 });
 
 test('streamChat: a stream that ends without done reports an error instead of hanging', async () => {

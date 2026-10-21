@@ -3,11 +3,15 @@
   "version": "2.10.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "extract": "node src/extract.mjs data/bettercare-corpus.json",
     "build:ext": "node tools/build-extension.mjs",
+    "build:index": "node tools/build-index.mjs",
     "test:search": "node tools/test-search.mjs",
-    "build": "npm run extract && npm run build:ext && npm run test:search",
+    "build": "npm run extract && npm run build:ext && npm run test:search && npm run build:index",
     "start": "node --env-file-if-exists=.env server/index.mjs",
     "ingest": "node src/ingest/index.mjs",
     "export:receiver": "node tools/export-receiver.mjs",
@@ -16,13 +20,16 @@
     "eval:answers": "BACKUP_DISABLED=1 node --env-file-if-exists=.env tools/eval-answers.mjs",
     "compare:models": "BACKUP_DISABLED=1 node --env-file-if-exists=.env tools/compare-models.mjs",
     "release": "node tools/release.mjs",
-    "seed:demo": "node tools/seed-demo.mjs",
+    "seed:demo": "node --env-file-if-exists=.env tools/seed-demo.mjs",
+    "users": "node --env-file-if-exists=.env tools/users.mjs",
     "test": "node --test \"test/*.test.mjs\"",
     "test:integration": "node --test \"test/integration/*.test.mjs\"",
-    "test:e2e": "node --test --test-concurrency=1 \"test/e2e/*.test.mjs\""
+    "test:e2e": "node --test --test-concurrency=1 \"test/e2e/*.test.mjs\"",
+    "test:firestore": "node tools/test-firestore.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
+    "@google-cloud/firestore": "^9.3.1",
     "@huggingface/transformers": "^4.3.0",
     "exceljs": "^4.4.0",
     "jszip": "^3.10.2",

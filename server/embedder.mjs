@@ -6,18 +6,17 @@
 // forces a re-embed instead of silently mixing vector spaces.
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { config } from './config.mjs';
-import { ROOT } from './corpus.mjs';
 
-const CACHE = resolve(ROOT, 'data/embeddings.json');
+const CACHE = config.EMBEDDINGS_FILE;
 
 let extractor = null;
 
 async function model() {
   if (!extractor) {
-    const { pipeline } = await import('@huggingface/transformers');
+    const { pipeline, env } = await import('@huggingface/transformers');
+    if (config.MODEL_CACHE_DIR) env.cacheDir = config.MODEL_CACHE_DIR;
     extractor = await pipeline('feature-extraction', config.EMBEDDING_MODEL, { dtype: 'q8' });
   }
   return extractor;
@@ -64,7 +63,11 @@ export async function embedChunks(chunks, { log = () => {}, cacheFile = CACHE, e
   let pruned = 0;
   for (const id of Object.keys(cache.items)) if (!live.has(id)) { delete cache.items[id]; pruned++; }
 
-  if (todo.length || pruned) writeFileSync(cacheFile, JSON.stringify(cache));
+  if (todo.length || pruned) {
+    // A read-only deployment (the Docker image) keeps working with the
+    // vectors in memory; `npm run build:index` is what saves them for next time.
+    try { writeFileSync(cacheFile, JSON.stringify(cache)); } catch (e) { log(`could not save the vectors to ${cacheFile} (${e.code || e.message}); run npm run build:index`); }
+  }
 
   return new Map(chunks.map((c) => [c.id, Float32Array.from(cache.items[c.id].v)]));
 }

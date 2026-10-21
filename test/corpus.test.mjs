@@ -22,7 +22,7 @@ test('the corpus lives at data/index/chunks.json under the project root', () => 
 
 test('a missing corpus says how to build it', (t) => {
   const dir = tempDir(t);
-  assert.throws(() => loadChunks(join(dir, 'none.json')), /Run: npm run ingest/);
+  assert.throws(() => loadChunks(join(dir, 'none.json')), /Run npm run ingest, or set CHUNKS_FILE/);
 });
 
 test('each passage is searched by its kind, where it sits, its folder, its text and its list details', (t) => {

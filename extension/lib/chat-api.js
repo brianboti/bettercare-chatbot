@@ -15,7 +15,10 @@
 //   error    { code, message }
 //   done     { finishReason, mode, model, promptVersion, rewrittenQuery, confidence, latencyMs, turnId }
 //
-// Who is asking travels in the X-Sophia-User header (see userHeaders).
+// Who is asking (see authHeaders): servers with sign-in take the session
+// token as "Authorization: Bearer"; a development server (AUTH_MODE=header)
+// takes the user id in X-Sophia-User. The site replica sends neither: its
+// session cookie goes along on its own.
 
 export const DEFAULT_API = 'http://localhost:8787';
 
@@ -29,21 +32,32 @@ export async function health(api = DEFAULT_API, { timeoutMs = 2500 } = {}) {
   }
 }
 
-/** Headers identifying the signed-in user, or none. */
-export const userHeaders = (userId) => (userId ? { 'X-Sophia-User': userId } : {});
+/** Headers saying who is asking: the session token, else the user id, else none. */
+export const authHeaders = ({ userId, token } = {}) => (token ? { Authorization: `Bearer ${token}` } : userId ? { 'X-Sophia-User': userId } : {});
 
-/** JSON GET/POST to the backend. Resolves to null on any failure. */
-export async function apiJson(api, path, { userId, body, method } = {}) {
+/** Headers identifying a user by id (development servers). */
+export const userHeaders = (userId) => authHeaders({ userId });
+
+/** JSON GET/POST to the backend: { ok, status, body }. Never throws; status 0 means unreachable. */
+export async function apiRequest(api, path, { userId, token, body, method } = {}) {
   try {
     const res = await fetch(`${api}${path}`, {
       method: method || (body ? 'POST' : 'GET'),
-      headers: { ...userHeaders(userId), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { ...authHeaders({ userId, token }), ...(body ? { 'Content-Type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
-    return res.ok ? await res.json() : null;
+    let json = null;
+    try { json = await res.json(); } catch { /* not JSON */ }
+    return { ok: res.ok, status: res.status, body: json };
   } catch {
-    return null;
+    return { ok: false, status: 0, body: null };
   }
+}
+
+/** JSON GET/POST to the backend. Resolves to null on any failure. */
+export async function apiJson(api, path, opts = {}) {
+  const r = await apiRequest(api, path, opts);
+  return r.ok ? r.body : null;
 }
 
 /** GET /api/search — hybrid (keyword + semantic) retrieval, no LLM. */
@@ -60,9 +74,9 @@ export async function searchApi(api, q, k = 10) {
  * @param {{role:'user'|'assistant', content:string}[]} messages  full history, last is the new question
  * @param {object} on           { status, sources, token, suggestions, reset, error, done } — each optional
  * @param {AbortSignal} [signal]
- * @param {{ userId?: string, conversationId?: string }} [opts]  saves the turn to this user's history
+ * @param {{ userId?: string, token?: string, conversationId?: string }} [opts]  saves the turn to this user's history
  */
-export async function streamChat(api, messages, on = {}, signal, { userId, conversationId } = {}) {
+export async function streamChat(api, messages, on = {}, signal, { userId, token, conversationId } = {}) {
   let terminal = false;
   const emit = (event, data) => {
     if (event === 'error' || event === 'done') terminal = true;
@@ -73,7 +87,7 @@ export async function streamChat(api, messages, on = {}, signal, { userId, conve
   try {
     res = await fetch(`${api}/api/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...userHeaders(userId) },
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...authHeaders({ userId, token }) },
       body: JSON.stringify({ messages, conversationId }),
       signal,
     });

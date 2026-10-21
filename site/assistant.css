@@ -332,6 +332,7 @@ html[data-bc-pane-open] .bc-pane { transform: none; visibility: visible; }
 }
 .bc-usermenu button:hover, .bc-usermenu button.bc-on { background: var(--bc-surface-2); }
 .bc-usermenu button.bc-on { box-shadow: inset 3px 0 0 var(--bc-primary); }
+.bc-usermenu-signout { border-top: 1px solid var(--bc-line-soft) !important; margin-top: 4px; }
 .bc-usermenu-link { display: block; padding: 10px 14px 6px; margin-top: 4px; border-top: 1px solid var(--bc-line-soft); color: var(--bc-primary-dark) !important; font-weight: 600; }
 
 /* ------------------------------------------------------------ first-run introduction */

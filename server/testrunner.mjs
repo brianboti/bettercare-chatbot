@@ -2,15 +2,16 @@
 //
 // Each suite is a fixed command run as a child process (nothing from the
 // request reaches the command line). One run per suite at a time; the last
-// result of each suite is kept in data/eval/last-<suite>.json so it survives
+// result of each suite is kept in TEST_RESULTS_DIR (data/eval)/last-<suite>.json so it survives
 // a restart.
 
 import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { resolve, basename, relative } from 'node:path';
 import { ROOT } from './corpus.mjs';
+import { config } from './config.mjs';
 
-const OUT_DIR = resolve(ROOT, 'data/eval');
+const OUT_DIR = config.TEST_RESULTS_DIR;
 const TIMEOUT_MS = 10 * 60_000;
 
 export const SUITES = [

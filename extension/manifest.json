@@ -11,7 +11,11 @@
   "host_permissions": [
     "https://uthealthsa.sharepoint.com/sites/BetterCare/*",
     "http://localhost/*",
-    "http://127.0.0.1/*"
+    "http://127.0.0.1/*",
+    "https://*.run.app/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*"
   ],
   "background": {
     "service_worker": "background.js"

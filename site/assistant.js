@@ -12,9 +12,12 @@
 //   - citations that open the cited page and highlight the exact passage
 //   - working dropdowns for the site navigation
 //
-// Who is signed in: on the real site SharePoint provides the user. The
-// replica has no sign-in, so a "signed in as" switcher in the suite bar picks
-// a demo person (or "someone new" to see the first-run introduction).
+// Who is signed in depends on the server's AUTH_MODE:
+//   password  the person signed in on /signin; the session cookie travels
+//             with every request. The suite bar shows them, with Sign out.
+//   header    (local development) no sign-in: a "signed in as" switcher in
+//             the suite bar picks a demo person (or "someone new" to see the
+//             first-run introduction), sent as X-Sophia-User.
 //
 // The open conversation lives in sessionStorage, so the pane stays open with
 // its history when a citation navigates to another page. Everything else
@@ -25,6 +28,8 @@ import { renderAnswer } from '/lib/render.js';
 
 const API = location.origin;
 const USER_KEY = 'sophia-user';
+const AUTH = await fetch('/api/auth/config').then((r) => r.json()).catch(() => ({ mode: 'header' }));
+const DEMO_SWITCHER = AUTH.mode === 'header';
 
 const KIND = {
   page: ['PG', '--bc-k-page', 'Page'], news: ['NEWS', '--bc-k-news', 'News'], faq: ['FAQ', '--bc-k-faq', 'FAQ'],
@@ -88,20 +93,30 @@ function setUserId(id) {
   try { localStorage.setItem(USER_KEY, JSON.stringify({ id })); } catch { /* private mode */ }
 }
 
-// A first visit with no one picked is "someone new": the introduction runs.
-let userId = loadUserId();
-if (!userId) { userId = `guest-${Math.random().toString(36).slice(2, 10)}`; setUserId(userId); }
+// Header mode: a first visit with no one picked is "someone new" (the
+// introduction runs). Password mode: the session says who; no id is sent.
+let userId = DEMO_SWITCHER ? loadUserId() : null;
+if (DEMO_SWITCHER && !userId) { userId = `guest-${Math.random().toString(36).slice(2, 10)}`; setUserId(userId); }
 let me = null;          // server profile, or null until loaded
 let roles = [];
 
 const api = (path, opts = {}) => apiJson(API, path, { userId, ...opts });
+
+/** The session ended (expired, or signed out elsewhere): sign in again and come back here. */
+const signInAgain = () => location.assign(`/signin?next=${encodeURIComponent(location.pathname + location.search)}`);
+
+async function signOut() {
+  try { await fetch('/api/auth/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); } catch { /* signed out locally anyway */ }
+  try { for (const k of Object.keys(sessionStorage)) if (k.startsWith('bc-assistant-v2:')) sessionStorage.removeItem(k); } catch { /* private mode */ }
+  location.assign('/signin');
+}
 
 /** Usage events for the insights dashboard. Survives page navigation. */
 function track(type, fields = {}) {
   try {
     fetch(`${API}/api/events`, {
       method: 'POST', keepalive: true,
-      headers: { 'Content-Type': 'application/json', 'X-Sophia-User': userId },
+      headers: { 'Content-Type': 'application/json', ...(userId ? { 'X-Sophia-User': userId } : {}) },
       body: JSON.stringify({ type, ...fields }),
     }).catch(() => {});
   } catch { /* ignore */ }
@@ -109,7 +124,7 @@ function track(type, fields = {}) {
 
 // ---------------------------------------------------------------- conversation state
 
-const STORE = () => `bc-assistant-v2:${userId}`;
+const STORE = () => `bc-assistant-v2:${userId || 'signed-in'}`;
 const newConversationId = () => `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 function load() {
@@ -720,8 +735,10 @@ async function stream(t, v) {
     error: (e) => {
       t.error = e.code === 'UNREACHABLE' ? { message: "Can't reach the assistant server. Is `npm start` running?" }
         : e.code === 'RATE_LIMITED' ? { message: e.message || 'Too many questions — wait a moment.' }
+        : e.code === 'SIGN_IN_REQUIRED' ? { message: 'Your sign-in ended. Taking you to sign in…' }
         : { message: e.message || 'Something went wrong.' };
       t.retry = e.code !== 'REFUSED';
+      if (e.code === 'SIGN_IN_REQUIRED') signInAgain();
     },
     done: (d) => { t.turnId = d.turnId; t.meta = { mode: d.mode, model: d.model, latencyMs: d.latencyMs }; },
   }, ctl.signal, { userId, conversationId: state.conversationId });
@@ -881,7 +898,7 @@ function mountSuiteButton() {
 function renderUserButton() {
   if (!userBtn) return;
   userBtn.replaceChildren(el('span', { class: 'bc-avatar', text: me?.name ? initials(me.name) : '?' }));
-  userBtn.title = me?.name ? `Signed in as ${me.name} (demo). Click to switch.` : 'New visitor (demo). Click to switch.';
+  userBtn.title = !DEMO_SWITCHER ? `Signed in as ${me?.name || me?.id || 'you'}` : me?.name ? `Signed in as ${me.name} (demo). Click to switch.` : 'New visitor (demo). Click to switch.';
   userBtn.setAttribute('aria-label', userBtn.title);
 }
 
@@ -889,8 +906,9 @@ let userMenu = null;
 async function toggleUserMenu(e) {
   e.stopPropagation();
   if (userMenu) { userMenu.remove(); userMenu = null; return; }
-  const r = await api('/api/demo-users');
   const roleLabel = (k) => roles.find((x) => x.key === k)?.label || '';
+  if (!DEMO_SWITCHER) return openAccountMenu(roleLabel);
+  const r = await api('/api/demo-users');
   const switchTo = (id) => {
     setUserId(id);
     // Each person has their own open conversation.
@@ -915,6 +933,22 @@ async function toggleUserMenu(e) {
   userMenu.style.right = `${Math.max(8, innerWidth - rect.right)}px`;
   document.body.append(userMenu);
 }
+/** Password mode: who is signed in, the admin link, and Sign out. */
+function openAccountMenu(roleLabel) {
+  userMenu = el('div', { class: 'bc-usermenu', role: 'menu' }, [
+    el('div', { class: 'bc-usermenu-head' }, [
+      el('b', { text: me?.name || me?.id || 'Signed in' }),
+      el('small', { text: [roleLabel(me?.role), me?.department].filter(Boolean).join(' · ') || me?.id || '' }),
+    ]),
+    me?.isAdmin ? el('a', { class: 'bc-usermenu-link', href: '/admin', target: '_blank', rel: 'noopener', role: 'menuitem', text: 'Open the insights dashboard ↗' }) : null,
+    el('button', { type: 'button', role: 'menuitem', class: 'bc-usermenu-signout', onclick: signOut }, [el('span', {}, ['Sign out'])]),
+  ]);
+  const rect = userBtn.getBoundingClientRect();
+  userMenu.style.top = `${rect.bottom + 6}px`;
+  userMenu.style.right = `${Math.max(8, innerWidth - rect.right)}px`;
+  document.body.append(userMenu);
+}
+
 document.addEventListener('mousedown', (e) => { if (userMenu && !userMenu.contains(e.target) && !userBtn?.contains(e.target)) { userMenu.remove(); userMenu = null; } });
 
 // ---------------------------------------------------------------- site navigation menus
@@ -1126,6 +1160,7 @@ async function boot() {
   const r = await api('/api/me');
   roles = r?.roles || [];
   me = r?.user || null;
+  if (!DEMO_SWITCHER && !me) { signInAgain(); return; }
 
   mountPane();
   mountSuiteButton();

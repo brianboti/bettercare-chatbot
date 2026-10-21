@@ -5,6 +5,8 @@
 import { fileURLToPath } from 'node:url';
 
 const env = process.env;
+const fromRoot = (rel) => fileURLToPath(new URL(`../${rel}`, import.meta.url));
+const list = (v) => String(v || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
 
 const int = (key, dflt) => {
   const v = env[key];
@@ -67,10 +69,70 @@ export const config = Object.freeze({
   // "older": listed last, under "Older results" in the pane.
   RECENT_WINDOW_DAYS: int('RECENT_WINDOW_DAYS', 365),
 
-  // Users, question history, feedback, pushed content (SQLite).
-  DB_FILE: env.SOPHIA_DB || fileURLToPath(new URL('../data/sophia.db', import.meta.url)),
-  // Per-turn diagnostics (JSON lines). Tests point it at a temp file.
-  CHAT_LOG: env.CHAT_LOG || fileURLToPath(new URL('../data/logs/chat.jsonl', import.meta.url)),
+  // ------------------------------------------------------------ data files
+  // Where the search index and the site export live. Each can point outside
+  // the repository (a mounted volume or bucket); the defaults are under data/.
+  CHUNKS_FILE: env.CHUNKS_FILE || fromRoot('data/index/chunks.json'),
+  // Vector cache for the chunks. Built by `npm run build:index` (the Docker
+  // build runs it); the server only writes it when the chunks changed.
+  EMBEDDINGS_FILE: env.EMBEDDINGS_FILE || fromRoot('data/embeddings.json'),
+  // Where the embedding model is downloaded and read from (transformers.js
+  // cache). Empty: the library's default, inside node_modules.
+  MODEL_CACHE_DIR: env.MODEL_CACHE_DIR || '',
+  // The BetterCare site export served as the website (pages, snapshots,
+  // lists, files). Optional: without it the API and the extension still work.
+  SITE_DIR: env.SITE_DIR || fromRoot('data/site'),
+  // Saved results of the admin panel's Tests tab.
+  TEST_RESULTS_DIR: env.TEST_RESULTS_DIR || fromRoot('data/eval'),
+  // Per-turn diagnostics (JSON lines). "-" writes them to standard output
+  // (Cloud Logging on GCP), "off" turns them off. Tests point it at a temp file.
+  CHAT_LOG: env.CHAT_LOG || fromRoot('data/logs/chat.jsonl'),
+
+  // ------------------------------------------------------------ database
+  // Users, question history, feedback, pushed content, sign-in sessions.
+  //   sqlite     one file (SOPHIA_DB); for a laptop and the tests
+  //   firestore  Google Cloud Firestore; credentials come from the service
+  //              account on GCP (or `gcloud auth application-default login`)
+  DATABASE: (() => {
+    const d = (env.DATABASE || 'sqlite').toLowerCase();
+    if (!['sqlite', 'firestore'].includes(d)) throw new Error('config: DATABASE must be sqlite or firestore');
+    return d;
+  })(),
+  DB_FILE: env.SOPHIA_DB || fromRoot('data/sophia.db'),
+  // Empty project: the one the service account belongs to (automatic on GCP).
+  FIRESTORE_PROJECT_ID: env.FIRESTORE_PROJECT_ID || env.GOOGLE_CLOUD_PROJECT || '',
+  FIRESTORE_DATABASE_ID: env.FIRESTORE_DATABASE_ID || '(default)',
+  // Put in front of every collection name, so two deployments (demo, staging)
+  // can share one database.
+  FIRESTORE_COLLECTION_PREFIX: env.FIRESTORE_COLLECTION_PREFIX || '',
+
+  // ------------------------------------------------------------ sign-in
+  //   password  username and password accounts stored in the database (the
+  //             demo sign-in). Everything but /api/health and the sign-in
+  //             page needs a signed-in person.
+  //   header    trust the X-Sophia-User header, no sign-in. Local
+  //             development and the tests only: anyone can be anyone.
+  // Microsoft (Entra ID) sign-in will be a third mode; see server/auth.mjs.
+  AUTH_MODE: (() => {
+    const m = (env.AUTH_MODE || 'password').toLowerCase();
+    if (!['password', 'header'].includes(m)) throw new Error('config: AUTH_MODE must be password or header');
+    return m;
+  })(),
+  SESSION_DAYS: int('SESSION_DAYS', 7),
+  // Let people create their own account on the sign-in page.
+  ALLOW_SIGNUP: env.ALLOW_SIGNUP === '1',
+  // The extension may sign people in as whoever SharePoint says is signed in
+  // there. Not verified by the server: for demos only, until Microsoft
+  // sign-in is set up.
+  SHAREPOINT_SIGNIN: env.SHAREPOINT_SIGNIN === '1',
+  SHAREPOINT_EMAIL_DOMAINS: list(env.SHAREPOINT_EMAIL_DOMAINS ?? 'uthscsa.edu,uthealthsa.org'),
+  // Created (or its password reset) at startup, as an admin. Optional.
+  ADMIN_USERNAME: (env.ADMIN_USERNAME || '').trim().toLowerCase(),
+  ADMIN_PASSWORD: env.ADMIN_PASSWORD || '',
+  // These people are admins whenever they sign in (usernames or emails).
+  ADMIN_USERS: list(env.ADMIN_USERS),
+  // Cookies get the Secure flag when the request came over HTTPS; "1" forces it.
+  COOKIE_SECURE: env.COOKIE_SECURE === '1',
 
   MAX_HISTORY_TURNS: int('MAX_HISTORY_TURNS', 10),
   MAX_QUESTION_CHARS: int('MAX_QUESTION_CHARS', 2000),

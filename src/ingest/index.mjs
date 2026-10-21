@@ -3,6 +3,9 @@
 //
 //   node src/ingest/index.mjs            -> data/index/chunks.json + report.json
 //
+// SITE_DIR and CHUNKS_FILE move the input and the output (server/config.mjs);
+// the caches (extract-cache.json, ocr.json) and report.json sit next to the chunks.
+//
 // Sources (all under data/site/, produced by tools/export-site.browser.js):
 //   lists/*.json      list rows       -> src/extract.mjs + src/lists.config.mjs
 //   pages/*.json      Site Pages      -> src/ingest/pages.mjs
@@ -15,15 +18,15 @@
 
 import { readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import { extract } from '../extract.mjs';
 import { ingestPages } from './pages.mjs';
 import { ingestDocuments } from './documents.mjs';
 import { testMarker, placeholderText } from './test-content.mjs';
+import { config } from '../../server/config.mjs';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const SITE_DIR = resolve(ROOT, 'data/site');
-const OUT_DIR = resolve(ROOT, 'data/index');
+const SITE_DIR = resolve(config.SITE_DIR);
+const OUT_DIR = dirname(resolve(config.CHUNKS_FILE));
 
 const log = (...a) => console.log(...a);
 
@@ -143,7 +146,7 @@ async function main() {
     seen.add(c.id);
   }
 
-  writeFileSync(resolve(OUT_DIR, 'chunks.json'), JSON.stringify(chunks));
+  writeFileSync(resolve(config.CHUNKS_FILE), JSON.stringify(chunks));
   const report = {
     builtAt: new Date().toISOString(),
     chunks: chunks.length,
@@ -164,7 +167,7 @@ async function main() {
   ];
   log(`\nLeft out as test content (${testOut.length}):${testOut.map((t) => `\n  ${t}`).join('')}`);
   if (docs.report.noText.length) log(`${docs.report.noText.length} PDFs look scanned (little or no text layer) — see report.json`);
-  log(`wrote data/index/chunks.json, data/index/report.json`);
+  log(`wrote ${config.CHUNKS_FILE}, ${resolve(OUT_DIR, 'report.json')}`);
 }
 
 function count(arr, key) {

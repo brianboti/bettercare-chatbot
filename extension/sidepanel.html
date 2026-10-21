@@ -32,7 +32,8 @@
     <form class="settings" id="settings" hidden>
       <label for="api-url">Assistant server</label>
       <input id="api-url" type="url" spellcheck="false" autocomplete="off" placeholder="http://localhost:8787">
-      <p class="settings__hint">Run <code>npm start</code> in the project to start it.</p>
+      <p class="settings__hint">The address of the Sophia server: your deployment's URL, or <code>http://localhost:8787</code> after <code>npm start</code>.</p>
+      <div class="settings__account" id="account" hidden></div>
       <div class="settings__row">
         <span class="settings__status" id="settings-status" aria-live="polite"></span>
         <button type="submit" class="btn">Save &amp; connect</button>

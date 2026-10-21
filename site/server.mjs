@@ -18,10 +18,10 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { parseHTML } from 'linkedom';
+import { config } from '../server/config.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ROOT = resolve(HERE, '..');
-const SITE_DIR = resolve(ROOT, 'data/site');
+const SITE_DIR = resolve(config.SITE_DIR);
 const SNAP_DIR = resolve(SITE_DIR, 'snapshots');
 const FILES_DIR = resolve(SITE_DIR, 'files');
 const PREFIX = '/sites/BetterCare/';
@@ -49,6 +49,9 @@ const faqConfigs = new Map(); // lowercased page name -> Modern FAQ web part pro
 let siteJson = null;
 const pages = new Map();      // lowercased page file name -> snapshot path
 const rendered = new Map();   // cache: page -> html
+
+/** True once init() found an export to serve. */
+export const available = () => pages.size > 0;
 
 export function init() {
   if (!existsSync(SNAP_DIR)) return;

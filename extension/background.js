@@ -1,8 +1,8 @@
 // Service worker. Opens the side panel, and nothing else.
 //
-// This extension never contacts SharePoint. It reads no page content and sends
-// no network requests of any kind — the corpus it searches is bundled locally
-// in data/corpus.json.
+// The network requests are the side panel's (questions to the Sophia server,
+// and "who is signed in" to SharePoint) and launcher.js's (the same
+// SharePoint question). Nothing here talks to anything.
 
 // Clicking the toolbar icon opens the panel on any tab.
 chrome.runtime.onInstalled.addListener(() => {

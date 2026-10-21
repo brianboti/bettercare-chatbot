@@ -1,9 +1,14 @@
 .env
 node_modules/
-data/embeddings.json
 data/site/
-data/index/
+# The search index: the chunks, the OCR text they used, and their vectors are
+# committed so a checkout can run (and the Docker build is quick). The ingest
+# caches and report are not.
+data/index/*
+!data/index/chunks.json
+!data/index/ocr.json
 data/logs/
 .DS_Store
 data/sophia.db*
 data/eval/
+dist/

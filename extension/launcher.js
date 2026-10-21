@@ -1,7 +1,10 @@
-// Injects a launcher button on the BetterCare site.
+// Injects a launcher button on the BetterCare site, and notes who is signed
+// in to SharePoint (for the side panel's SharePoint sign-in).
 //
-// Read-only: it adds one button to the page in this browser and never reads,
-// submits, or alters anything on the site. Unloading the extension removes it.
+// Read-only: it adds one button to the page in this browser, asks SharePoint
+// who the signed-in person is (GET /_api/web/currentuser: their name and
+// email), and never submits or alters anything on the site. Unloading the
+// extension removes it.
 
 (() => {
   if (document.getElementById('bc-assistant-launcher')) return;
@@ -34,4 +37,15 @@
   });
 
   document.body.append(btn, hint);
+
+  // Same origin as the page, so SharePoint's own sign-in cookie goes along.
+  // The panel reads this back (lib/sharepoint.js).
+  fetch('/sites/BetterCare/_api/web/currentuser', { credentials: 'same-origin', headers: { Accept: 'application/json;odata=nometadata' } })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((u) => {
+      if (!u) return;
+      const { Email, Title, LoginName, UserPrincipalName } = u;
+      chrome.storage.local.set({ spUser: { at: Date.now(), user: { Email, Title, LoginName, UserPrincipalName } } });
+    })
+    .catch(() => { /* not signed in, or SharePoint is busy: the panel offers a password sign-in */ });
 })();

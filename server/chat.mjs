@@ -81,13 +81,13 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
   const history = messages.slice(0, -1);
   const useLlm = llmAvailable();
   const log = { at: new Date().toISOString(), version: VERSION, question, promptVersion: PROMPT_VERSION, user: user?.id || null };
-  const person = user && store ? describePerson(store, user) : '';
+  const person = user && store ? await describePerson(store, user) : '';
   const turn = { question, topics: [], intent: null, context: [], answer: '', sources: [], suggestions: null, assumptions: [] };
   let saved = null;
-  const saveTurn = () => {
+  const saveTurn = async () => {
     if (!user || !store || saved) return saved;
     try {
-      saved = store.addTurn({ ...turn, userId: user.id, conversationId: conversationId || `c-${Date.now()}`, rewritten: log.rewritten, latencyMs: Date.now() - t0 });
+      saved = await store.addTurn({ ...turn, userId: user.id, conversationId: conversationId || `c-${Date.now()}`, rewritten: log.rewritten, latencyMs: Date.now() - t0 });
     } catch (e) { console.warn('could not save turn:', e.message); }
     return saved;
   };
@@ -143,7 +143,7 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
       log.outOfScope = true;
       send('sources', turn.sources);
       send('token', { text: turn.answer });
-      const turnId = saveTurn();
+      const turnId = await saveTurn();
       send('done', { finishReason: 'out_of_scope', mode: 'out-of-scope', model: null, promptVersion: PROMPT_VERSION, rewrittenQuery: query, confidence, latencyMs: Date.now() - t0, turnId });
       return;
     }
@@ -157,7 +157,7 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
       turn.answer = withHelp(extractiveAnswer(results, lowConfidence));
       turn.mode = 'retrieval-only';
       send('token', { text: turn.answer });
-      const turnId = saveTurn();
+      const turnId = await saveTurn();
       send('done', { finishReason: 'retrieval_only', mode: 'retrieval-only', model: null, promptVersion: PROMPT_VERSION, rewrittenQuery: query, confidence, latencyMs: Date.now() - t0, turnId });
       return;
     }
@@ -199,11 +199,11 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
 
     if (out.stopReason === 'refusal') {
       turn.error = 'refused';
-      saveTurn();
+      await saveTurn();
       send('error', { code: 'REFUSED', message: "I can't help with that one. Try rephrasing, or search the site directly." });
       return;
     }
-    const turnId = saveTurn();
+    const turnId = await saveTurn();
     send('done', {
       finishReason: out.stopReason, mode: 'claude', model: out.model, promptVersion: PROMPT_VERSION,
       rewrittenQuery: query, confidence, latencyMs: Date.now() - t0, turnId,
@@ -212,18 +212,25 @@ export async function runChat({ retriever, store }, messages, send, signal, { us
     if (signal?.aborted) return;
     log.error = String(err?.message || err);
     turn.error = log.error.slice(0, 300);
-    saveTurn();
+    await saveTurn();
     const code = err instanceof Anthropic.RateLimitError || err instanceof OpenAI.RateLimitError ? 'RATE_LIMITED'
       : err instanceof Anthropic.APIError || err instanceof OpenAI.APIError || /^OpenAI:/.test(err?.message) ? 'UPSTREAM_LLM'
       : 'INTERNAL';
     send('error', { code, message: code === 'INTERNAL' ? 'Something went wrong on the server.' : 'The AI service had a problem. Please try again.' });
   } finally {
     log.latencyMs = Date.now() - t0;
-    try {
-      mkdirSync(dirname(config.CHAT_LOG), { recursive: true });
-      appendFileSync(config.CHAT_LOG, `${JSON.stringify(log)}\n`);
-    } catch { /* logging must never break a turn */ }
+    writeChatLog(log);
   }
+}
+
+/** One line per turn to CHAT_LOG: a file, "-" for standard output, or "off". */
+function writeChatLog(log) {
+  if (config.CHAT_LOG === 'off') return;
+  try {
+    if (config.CHAT_LOG === '-') { process.stdout.write(`${JSON.stringify({ type: 'chat_turn', ...log })}\n`); return; }
+    mkdirSync(dirname(config.CHAT_LOG), { recursive: true });
+    appendFileSync(config.CHAT_LOG, `${JSON.stringify(log)}\n`);
+  } catch { /* logging must never break a turn */ }
 }
 
 export const OUT_OF_SCOPE_ANSWER = "That information doesn't exist in the BetterCare documents, so I can't answer it. I can help with Epic upgrades, training and tip sheets, Abridge, Haiku and Canto, Wisdom dental, Beaker lab, AI in healthcare, and the help desk.";

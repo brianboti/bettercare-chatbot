@@ -21,14 +21,14 @@ const fmtDay = (iso) => new Date(iso).toLocaleDateString('en-US', { month: 'shor
 const todayIso = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
 
 /** The <person> block given to the model with every question. */
-export function describePerson(store, user) {
+export async function describePerson(store, user) {
   if (!user) return '';
   const lines = [];
   if (user.name) lines.push(`Name: ${user.name}`);
   lines.push(`Role: ${roleLabel(user.role) || 'not given'}${user.department ? `, ${user.department}` : ''}`);
-  const topics = store.userTopics(user.id, 60).slice(0, 4);
+  const topics = (await store.userTopics(user.id, 60)).slice(0, 4);
   if (topics.length) lines.push(`Asked about recently: ${topics.map((t) => `${t.topic} (${t.count}×, last ${fmtDay(t.lastAt)})`).join('; ')}`);
-  const recent = store.recentTurns(user.id, 4);
+  const recent = await store.recentTurns(user.id, 4);
   if (recent.length) {
     lines.push('Last questions:');
     for (const t of recent) lines.push(`- ${fmtDay(t.at)}: ${t.question.slice(0, 160)}`);
@@ -62,23 +62,23 @@ function siteNews(chunks, { pastDays = 75, aheadDays = 60 } = {}) {
  * Pick up to ~8 candidates for the welcome screen.
  * @returns {{ id, source, title, detail, prompt, promoId? }[]}
  */
-export function welcomeCandidates(store, user, { chunks, facts }) {
+export async function welcomeCandidates(store, user, { chunks, facts }) {
   const out = [];
   const role = ROLES[user.role] ? user.role : null;
   const roleTopics = new Set(ROLES[role]?.topics || []);
-  const mine = store.userTopics(user.id, 60);
+  const mine = await store.userTopics(user.id, 60);
   const myTopics = new Set(mine.map((t) => t.topic));
 
   // 1. What the org wants this role to see. Not re-shown once clicked or dismissed.
-  const acted = store.promotionsActedOn(user.id);
-  for (const p of store.promotionsFor(role).filter((x) => !acted.has(x.id)).slice(0, 2)) {
+  const acted = await store.promotionsActedOn(user.id);
+  for (const p of (await store.promotionsFor(role)).filter((x) => !acted.has(x.id)).slice(0, 2)) {
     out.push({ id: `org:${p.id}`, source: 'org', promoId: p.id, title: p.title, detail: p.blurb || '', prompt: p.prompt, url: p.url || null });
   }
 
   // 2. Build on what they asked before.
   if (mine.length) {
     const top = mine[0];
-    const last = store.recentTurns(user.id, 20).find((t) => t.topics.includes(top.topic));
+    const last = (await store.recentTurns(user.id, 20)).find((t) => t.topics.includes(top.topic));
     out.push({
       id: `continue:${top.topic}`, source: 'continue', title: top.topic,
       detail: `They asked about ${top.topic} ${top.count} time${top.count > 1 ? 's' : ''}, most recently on ${fmtDay(top.lastAt)}: "${last?.question || ''}". Suggest a natural next step on the same topic, not the same question.`,
@@ -87,7 +87,7 @@ export function welcomeCandidates(store, user, { chunks, facts }) {
   }
 
   // 3. What people in the same role ask.
-  for (const pq of store.peerQuestions(role, user.id, { limit: 2 })) {
+  for (const pq of await store.peerQuestions(role, user.id, { limit: 2 })) {
     out.push({
       id: `peers:${pq.question.slice(0, 40)}`, source: 'peers', title: pq.question,
       detail: `${pq.people} other ${roleLabel(role) || 'people'} asked this recently.`, prompt: pq.question,
@@ -166,14 +166,14 @@ const cache = new Map();   // userId -> { key, value }
  * Cached per user until they ask something new or the pushed content changes.
  */
 export async function welcome(store, user, deps) {
-  const key = [todayIso(), store.recentTurns(user.id, 1)[0]?.id || 0, JSON.stringify(store.promotionsFor(user.role).map((p) => [p.id, p.url])), user.role, user.name].join('|');
+  const key = [todayIso(), (await store.recentTurns(user.id, 1))[0]?.id || 0, JSON.stringify((await store.promotionsFor(user.role)).map((p) => [p.id, p.url])), user.role, user.name].join('|');
   const hit = cache.get(user.id);
   if (hit?.key === key) return hit.value;
 
-  const candidates = welcomeCandidates(store, user, deps);
+  const candidates = await welcomeCandidates(store, user, deps);
   let result = null;
   if (llmAvailable() && candidates.length) {
-    const content = `<person>\n${describePerson(store, user)}\n</person>\n\n<candidates>\n${candidates.map((c) => JSON.stringify({ id: c.id, source: c.source, title: c.title, detail: c.detail, default_prompt: c.prompt })).join('\n')}\n</candidates>`;
+    const content = `<person>\n${await describePerson(store, user)}\n</person>\n\n<candidates>\n${candidates.map((c) => JSON.stringify({ id: c.id, source: c.source, title: c.title, detail: c.detail, default_prompt: c.prompt })).join('\n')}\n</candidates>`;
     try { result = await generateJson(WELCOME_SYSTEM, content, WELCOME_SCHEMA, { purpose: 'welcome', userId: user.id }); } catch (e) { console.warn('welcome generation failed:', e.message); }
   }
   if (!result?.cards?.length) result = plainWelcome(user, candidates);

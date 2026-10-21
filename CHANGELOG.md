@@ -17,6 +17,47 @@ Changes to docs or tests alone don't need a release.
 
 ## Unreleased
 
+Ready to deploy on GCP (the Fast Deploy checklist): a Docker image, Firestore,
+sign-in, and every file location set by a setting.
+
+### Added
+- **Firestore** as the database (`DATABASE=firestore`), with the same
+  features as SQLite: profiles, history, feedback, pushed content, insights,
+  AI spend and sign-in. No indexes to deploy. SQLite stays for laptops and
+  tests. `npm run test:firestore` runs the database, sign-in and API tests on
+  Google's local Firestore emulator.
+- **Sign-in** (`AUTH_MODE=password`, the new default): a sign-in page for the
+  website, an HttpOnly session cookie, and a session token for the extension.
+  Everything but `/api/health` and the sign-in page needs a signed-in person.
+  The first admin comes from `ADMIN_USERNAME` / `ADMIN_PASSWORD`; `npm run
+  users` manages accounts; `ALLOW_SIGNUP=1` opens sign-up; `ADMIN_USERS`
+  names admins. Built so Microsoft sign-in can be added as one more method.
+- **Extension sign-in**: it signs you in as whoever is signed in to
+  SharePoint in the browser (`SHAREPOINT_SIGNIN=1`, demo only: the server
+  can't verify it), or with a username and password; the settings panel shows
+  who is signed in, with Sign out. It can reach `*.run.app` servers, and asks
+  for any other address when you save it.
+- `Dockerfile`: production dependencies, the embedding model and the search
+  vectors built in; runs as a non-root user, writes only to `/tmp`, logs to
+  standard output, starts in about a second.
+- `.env.example` with every setting; `.nvmrc` and `engines` for Node.js 24.
+- Settings for every file location: `CHUNKS_FILE`, `EMBEDDINGS_FILE`,
+  `MODEL_CACHE_DIR`, `SITE_DIR`, `TEST_RESULTS_DIR`; `CHAT_LOG=-` logs to
+  standard output and `CHAT_LOG=off` turns it off.
+- `npm run build:index` builds the search vectors (and `-- --ingest` the
+  chunks first); `npm run build` now ends with it.
+- The search index (`data/index/chunks.json`, `data/index/ocr.json`,
+  `data/embeddings.json`) is committed, so a fresh checkout runs.
+- `npm run seed:demo` works on either database, and `DEMO_PASSWORD` lets you
+  sign in as the demo people.
+- README: interfaces, settings, data, database, sign-in and deploying.
+
+### Changed
+- `npm start` now asks people to sign in. For local development without
+  sign-in (the demo-person switcher), set `AUTH_MODE=header`.
+- Without the site export the server runs API-only and says so at `/`.
+- `npm run release` also updates the version in `package-lock.json`.
+
 ## [2.10.0] — 2026-10-19
 
 ### Added

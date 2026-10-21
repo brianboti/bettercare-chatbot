@@ -1,0 +1,14 @@
+# Keep the image to the app, its index and its tests.
+.git
+.env
+.env.*
+!.env.example
+node_modules
+dist
+data/site
+data/sophia.db*
+data/logs
+data/eval
+data/index/extract-cache.json
+data/index/report.json
+**/.DS_Store

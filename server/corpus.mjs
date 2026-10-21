@@ -4,9 +4,10 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { config } from './config.mjs';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-export const CHUNKS_FILE = resolve(ROOT, 'data/index/chunks.json');
+export const CHUNKS_FILE = config.CHUNKS_FILE;
 
 export const KIND_LABEL = {
   page: 'Site page',
@@ -49,10 +50,10 @@ function facets(m = {}) {
   return out;
 }
 
-/** The corpus with each chunk's index text. `file` defaults to data/index/chunks.json. */
+/** The corpus with each chunk's index text. `file` defaults to CHUNKS_FILE (data/index/chunks.json). */
 export function loadChunks(file = CHUNKS_FILE) {
   if (!existsSync(file)) {
-    throw new Error(`No corpus at ${file}. Run: npm run ingest`);
+    throw new Error(`No corpus at ${file}. Run npm run ingest, or set CHUNKS_FILE (see README).`);
   }
   const raw = JSON.parse(readFileSync(file, 'utf8'));
   return raw.map((c) => {

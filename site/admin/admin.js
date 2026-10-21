@@ -1,17 +1,22 @@
 // Sophia insights dashboard (admins only).
 //
 // Reads GET /api/admin/insights and manages pushed content through
-// /api/admin/promotions. Identity is the replica's demo sign-in: the user id
-// in localStorage 'sophia-user', sent as X-Sophia-User. All data is rendered
-// with textContent; nothing from the API goes through innerHTML.
+// /api/admin/promotions. Who is signed in follows the server's AUTH_MODE: the
+// session cookie from /signin (password), or in local development the
+// replica's demo switcher, the user id in localStorage 'sophia-user' sent as
+// X-Sophia-User (header). All data is rendered with textContent; nothing
+// from the API goes through innerHTML.
 
 const USER_KEY = 'sophia-user';
+const AUTH = await fetch('/api/auth/config').then((r) => r.json()).catch(() => ({ mode: 'header' }));
+const DEMO_SWITCHER = AUTH.mode === 'header';
 const main = document.getElementById('main');
 const tip = document.getElementById('tip');
 const daysSel = document.getElementById('days');
 const roleSel = document.getElementById('role');
 
-const state = { userId: readUserId(), days: 30, role: '', data: null, roles: new Map(), editing: null, fbFilter: 'all', pages: new Map() };
+const sessionUserId = DEMO_SWITCHER ? null : await fetch('/api/me').then((r) => r.json()).then((r) => r.user?.id || null).catch(() => null);
+const state = { userId: DEMO_SWITCHER ? readUserId() : sessionUserId, days: 30, role: '', data: null, roles: new Map(), editing: null, fbFilter: 'all', pages: new Map() };
 
 // ---------------------------------------------------------------- utilities
 
@@ -50,10 +55,11 @@ function svg(tag, attrs = {}) {
 async function api(path, opts = {}) {
   const res = await fetch(path, {
     ...opts,
-    headers: { 'Content-Type': 'application/json', ...(state.userId ? { 'X-Sophia-User': state.userId } : {}), ...opts.headers },
+    headers: { 'Content-Type': 'application/json', ...(DEMO_SWITCHER && state.userId ? { 'X-Sophia-User': state.userId } : {}), ...opts.headers },
   });
   let body = null;
   try { body = await res.json(); } catch { /* empty */ }
+  if (res.status === 401 && !DEMO_SWITCHER) { location.assign('/signin?next=/admin'); return new Promise(() => {}); }
   if (!res.ok) { const e = new Error(body?.message || `Request failed (${res.status})`); e.status = res.status; throw e; }
   return body;
 }
@@ -111,6 +117,21 @@ const hideTip = () => { tip.hidden = true; };
 
 async function signIn(message) {
   document.getElementById('controls').hidden = true;
+  if (!DEMO_SWITCHER) {
+    if (!state.userId) { location.assign('/signin?next=/admin'); return; }
+    main.replaceChildren(el('section', { class: 'card signin' }, [
+      el('h2', { text: 'Admins only' }),
+      el('p', { text: message || 'This dashboard is for Clinical IT.' }),
+      el('div', { class: 'row' }, [el('button', {
+        class: 'btn btn--primary', type: 'button', text: 'Sign in as someone else',
+        onclick: async () => {
+          await fetch('/api/auth/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
+          location.assign('/signin?next=/admin');
+        },
+      })]),
+    ]));
+    return;
+  }
   let users = [];
   try { users = (await api('/api/demo-users')).users || []; } catch { /* server down */ }
   const admins = users.filter((u) => u.isAdmin);

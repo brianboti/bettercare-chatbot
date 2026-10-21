@@ -37,16 +37,17 @@ const freePort = () => new Promise((ok, fail) => {
 });
 
 /**
- * @param {{ seed?: (store) => void, timeoutMs?: number }} opts
+ * @param {{ seed?: (store) => void, timeoutMs?: number, env?: object }} opts
  *   seed: writes to the temporary database before the server opens it
+ *   env: settings on top of the test defaults (AUTH_MODE=header: no sign-in)
  */
-export async function startServer({ seed, timeoutMs = 120_000 } = {}) {
+export async function startServer({ seed, timeoutMs = 120_000, env: extra = {} } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'sophia-e2e-'));
   const db = join(dir, 'sophia.db');
   if (seed) { const store = openStore(db); seed(store); store.close(); }
 
   const port = await freePort();
-  const env = { ...process.env, PORT: String(port), HOST: '127.0.0.1', SOPHIA_DB: db, CHAT_LOG: join(dir, 'chat.jsonl'), LLM_DISABLED: '1', BACKUP_DISABLED: '1', ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '', OPENAI_API_KEY: '' };
+  const env = { ...process.env, PORT: String(port), HOST: '127.0.0.1', SOPHIA_DB: db, CHAT_LOG: join(dir, 'chat.jsonl'), LLM_DISABLED: '1', BACKUP_DISABLED: '1', ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '', OPENAI_API_KEY: '', AUTH_MODE: 'header', DATABASE: 'sqlite', ...extra };
   delete env.NODE_TEST_CONTEXT;   // the server is not a test file
   const child = spawn(process.execPath, ['server/index.mjs'], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '';

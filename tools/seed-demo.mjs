@@ -5,20 +5,25 @@
 //   npm run seed:demo            replace existing demo data
 //   npm run seed:demo -- --clear remove demo data only
 //
+// Writes to the database DATABASE names (SQLite or Firestore). With
+// DEMO_PASSWORD set, the demo people get that password, so on a server with
+// sign-in you can sign in as maria.lopez, taylor.brooks (an admin), and so
+// on, to show their personal welcome.
+//
 // Every row written here has demo=1; real usage is never touched. Answers are
 // the retrieval-only kind (no Claude calls, no cost): real search results
 // for real questions, so confidence scores and sources are genuine.
 
-import { openStore } from '../server/store.mjs';
-import { config } from '../server/config.mjs';
+import { openConfiguredStore, describeDatabase } from '../server/db.mjs';
+import { createAuth } from '../server/auth.mjs';
 import { loadChunks } from '../server/corpus.mjs';
 import { buildRetriever } from '../server/retriever.mjs';
 import { sourceView, extractiveAnswer } from '../server/chat.mjs';
 import { tagTopics } from '../server/topics.mjs';
 
-const store = openStore(config.DB_FILE);
-store.clearDemo();
-if (process.argv.includes('--clear')) { console.log('demo data removed'); process.exit(0); }
+const store = await openConfiguredStore();
+await store.clearDemo();
+if (process.argv.includes('--clear')) { console.log('demo data removed'); await store.close(); process.exit(0); }
 
 // Deterministic pseudo-random, so every seed produces the same demo.
 let seed = 42;
@@ -91,7 +96,12 @@ console.log('loading corpus…');
 const chunks = loadChunks();
 const retriever = await buildRetriever(chunks);
 
-for (const p of [...PEOPLE, ...PEERS]) store.saveUser(p.id, { ...p, demo: true, createdAt: daysAgo(40) });
+for (const p of [...PEOPLE, ...PEERS]) await store.saveUser(p.id, { ...p, demo: true, createdAt: daysAgo(40) });
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD || '';
+if (DEMO_PASSWORD) {
+  const auth = createAuth(store);
+  for (const p of PEOPLE) await auth.setPassword(p.id, DEMO_PASSWORD, { ...p, demo: true });
+}
 
 const answers = new Map();
 async function answer(q) {
@@ -105,7 +115,7 @@ async function answer(q) {
 let turns = 0;
 async function ask(user, q, at, conv, { feedback } = {}) {
   const a = await answer(q);
-  const id = store.addTurn({
+  const id = await store.addTurn({
     userId: user.id, conversationId: conv, at, question: q, rewritten: q, intent: null, topics: tagTopics(q),
     answer: a.text, sources: a.sources, confidence: a.confidence, lowConfidence: a.lowConfidence, mode: 'retrieval-only',
     latencyMs: 2500 + Math.floor(rand() * 4000), demo: true,
@@ -114,10 +124,10 @@ async function ask(user, q, at, conv, { feedback } = {}) {
   // Most good answers get a source opened; weak ones rarely do.
   if (!a.lowConfidence && rand() < 0.6 && a.sources[0]) {
     const s = rand() < 0.75 ? a.sources[0] : pick(a.sources.slice(0, 3));
-    store.addEvent({ userId: user.id, at, type: 'citation_click', turnId: id, ref: s.id, data: { title: s.title, kind: s.kind, url: s.url }, demo: true });
+    await store.addEvent({ userId: user.id, at, type: 'citation_click', turnId: id, ref: s.id, data: { title: s.title, kind: s.kind, url: s.url }, demo: true });
   }
   const fb = feedback ?? (a.lowConfidence ? (rand() < 0.45 ? -1 : null) : rand() < 0.25 ? 1 : rand() < 0.04 ? -1 : null);
-  if (fb) store.setFeedback(id, user.id, fb, fb < 0 && a.lowConfidence ? pick(["Didn't find what I needed", 'Not on the site?', 'Wrong answer']) : null);
+  if (fb) await store.setFeedback(id, user.id, fb, fb < 0 && a.lowConfidence ? pick(["Didn't find what I needed", 'Not on the site?', 'Wrong answer']) : null);
   return id;
 }
 
@@ -170,16 +180,17 @@ const PROMOS = [
     roles: ['nurse', 'physician', 'frontdesk', 'pharmacy', 'lab', 'it'], priority: 6,
   },
 ];
-const promoIds = PROMOS.map((p) => store.savePromotion({ ...p, demo: true }, 'taylor.brooks').id);
+const promoIds = [];
+for (const p of PROMOS) promoIds.push((await store.savePromotion({ ...p, demo: true }, 'taylor.brooks')).id);
 // Some history of promotions being shown and clicked.
 for (const u of PEERS) {
   for (const [i, pid] of promoIds.entries()) {
     const p = PROMOS[i];
     if (p.roles.length && !p.roles.includes(u.role)) continue;
-    if (rand() < 0.7) store.addEvent({ userId: u.id, at: daysAgo(Math.floor(rand() * 10) + 1), type: 'promo_shown', ref: String(pid), demo: true });
-    if (rand() < 0.22) store.addEvent({ userId: u.id, at: daysAgo(Math.floor(rand() * 10) + 1), type: 'promo_click', ref: String(pid), demo: true });
+    if (rand() < 0.7) await store.addEvent({ userId: u.id, at: daysAgo(Math.floor(rand() * 10) + 1), type: 'promo_shown', ref: String(pid), demo: true });
+    if (rand() < 0.22) await store.addEvent({ userId: u.id, at: daysAgo(Math.floor(rand() * 10) + 1), type: 'promo_click', ref: String(pid), demo: true });
   }
 }
 
-console.log(`seeded ${PEOPLE.length} people + ${PEERS.length} colleagues, ${turns} questions, ${PROMOS.length} promotions → ${config.DB_FILE}`);
-store.close();
+console.log(`seeded ${PEOPLE.length} people + ${PEERS.length} colleagues, ${turns} questions, ${PROMOS.length} promotions → ${describeDatabase()}${DEMO_PASSWORD ? '; demo people can sign in with DEMO_PASSWORD' : ''}`);
+await store.close();

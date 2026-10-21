@@ -30,50 +30,50 @@ beforeEach((t) => {
   t.mock.method(console, 'warn', () => {});
 });
 
-test('describePerson: no person, nothing to say', () => {
-  assert.equal(describePerson(openStore(':memory:'), null), '');
+test('describePerson: no person, nothing to say', async () => {
+  assert.equal(await describePerson(openStore(':memory:'), null), '');
 });
 
-test('describePerson: name, role, department, and that it is their first conversation', () => {
+test('describePerson: name, role, department, and that it is their first conversation', async () => {
   const { s } = fixture();
   const u = s.saveUser('x', { name: 'Sam', role: 'frontdesk', department: 'Clinic 4' });
-  assert.equal(describePerson(s, u), 'Name: Sam\nRole: Front desk & scheduling, Clinic 4\nFirst conversation with Sophia.');
+  assert.equal(await describePerson(s, u), 'Name: Sam\nRole: Front desk & scheduling, Clinic 4\nFirst conversation with Sophia.');
   const noRole = s.saveUser('y', {});
-  assert.equal(describePerson(s, noRole), 'Role: not given\nFirst conversation with Sophia.');
+  assert.equal(await describePerson(s, noRole), 'Role: not given\nFirst conversation with Sophia.');
 });
 
-test('describePerson: recent topics with counts, and their last questions', () => {
+test('describePerson: recent topics with counts, and their last questions', async () => {
   const { s, user } = fixture();
   const at = ago(2);
   s.addTurn({ userId: user.id, conversationId: 'c', at, question: 'How do I set up Haiku?', topics: ['Haiku & Canto'] });
   s.addTurn({ userId: user.id, conversationId: 'c', at, question: 'q'.repeat(300), topics: ['Haiku & Canto'] });
-  const text = describePerson(s, user);
+  const text = await describePerson(s, user);
   assert.match(text, new RegExp(`Asked about recently: Haiku & Canto \\(2×, last ${chicagoDay(at)}\\)`));
   assert.match(text, /Last questions:\n- .+: q{160}\n- .+: How do I set up Haiku\?$/);
 });
 
-test('cards: pushed content for their role first, at most 2, and not again once acted on', () => {
+test('cards: pushed content for their role first, at most 2, and not again once acted on', async () => {
   const { s, user } = fixture();
   const a = s.savePromotion({ title: 'Podcast', prompt: 'Summarize it', blurb: 'New episode', roles: [], url: 'https://example.org/p', priority: 5 });
   s.savePromotion({ title: 'Nurses only', prompt: 'p', roles: ['nurse'] });
   s.savePromotion({ title: 'Third', prompt: 'p', roles: [] });
   s.savePromotion({ title: 'Surgeons only', prompt: 'p', roles: ['surgeon'] });
-  let c = welcomeCandidates(s, user, { chunks: [], facts: noFacts });
+  let c = (await welcomeCandidates(s, user, { chunks: [], facts: noFacts }));
   assert.equal(c.filter((x) => x.source === 'org').length, 2);
   assert.ok(!c.some((x) => x.title === 'Surgeons only'));
   const pod = c.find((x) => x.promoId === a.id);
   assert.deepEqual([pod.id, pod.detail, pod.prompt, pod.url], [`org:${a.id}`, 'New episode', 'Summarize it', 'https://example.org/p']);
   s.addEvent({ userId: user.id, type: 'promo_dismiss', ref: String(a.id) });
-  c = welcomeCandidates(s, user, { chunks: [], facts: noFacts });
+  c = (await welcomeCandidates(s, user, { chunks: [], facts: noFacts }));
   assert.ok(!c.some((x) => x.promoId === a.id));
 });
 
-test('cards: build on their most asked topic, and on what people in their role ask', () => {
+test('cards: build on their most asked topic, and on what people in their role ask', async () => {
   const { s, user } = fixture();
   s.addTurn({ userId: user.id, conversationId: 'c', at: ago(1), question: 'Abridge on my phone?', topics: ['Abridge'] });
   s.addTurn({ userId: `${user.id}-peer1`, conversationId: 'p', at: ago(1), question: 'How do I chart a flowsheet?', topics: ['Nursing'] });
   s.addTurn({ userId: `${user.id}-peer2`, conversationId: 'q', at: ago(1), question: 'How do I chart a flowsheet', topics: ['Nursing'] });
-  const c = welcomeCandidates(s, user, { chunks: [], facts: noFacts });
+  const c = (await welcomeCandidates(s, user, { chunks: [], facts: noFacts }));
   const cont = c.find((x) => x.source === 'continue');
   assert.equal(cont.title, 'Abridge');
   assert.match(cont.detail, /asked about Abridge 1 time,/);
@@ -83,17 +83,17 @@ test('cards: build on their most asked topic, and on what people in their role a
   assert.match(peer.detail, /^2 other Nurse asked this recently\.$/);
 });
 
-test('cards: the next Epic upgrade, worded for their role', () => {
+test('cards: the next Epic upgrade, worded for their role', async () => {
   const { s, user } = fixture();
   const facts = { context: () => ({ next: { version: 'vMay2026', date: '2026-05-02' } }) };
-  const up = welcomeCandidates(s, user, { chunks: [], facts }).find((x) => x.id === 'new:upgrade:vMay2026');
+  const up = (await welcomeCandidates(s, user, { chunks: [], facts })).find((x) => x.id === 'new:upgrade:vMay2026');
   assert.equal(up.prompt, "What's changing for nurse in the vMay2026 upgrade?");
   const noRole = s.saveUser('nr', { role: 'unknown-role' });
-  assert.equal(welcomeCandidates(s, noRole, { chunks: [], facts }).find((x) => x.source === 'new').prompt, "What's changing for me in the vMay2026 upgrade?");
-  assert.equal(welcomeCandidates(s, user, { chunks: [], facts: null }).length, 0, 'no facts, no upgrade card');
+  assert.equal((await welcomeCandidates(s, noRole, { chunks: [], facts })).find((x) => x.source === 'new').prompt, "What's changing for me in the vMay2026 upgrade?");
+  assert.equal((await welcomeCandidates(s, user, { chunks: [], facts: null })).length, 0, 'no facts, no upgrade card');
 });
 
-test('cards: recent news and upcoming events that fit their role, best 3; podcasts always count', () => {
+test('cards: recent news and upcoming events that fit their role, best 3; podcasts always count', async () => {
   const { s, user } = fixture();
   const chunks = [
     news('Nursing flowsheet changes', day(-5), 'New nursing flowsheet rows'),
@@ -107,7 +107,7 @@ test('cards: recent news and upcoming events that fit their role, best 3; podcas
     { id: 'p', kind: 'page', title: 'Nursing page', text: 'nursing', meta: { date: day(-1) } },
     news('Undated nursing', '', 'nursing'),
   ];
-  const got = welcomeCandidates(s, user, { chunks, facts: noFacts }).filter((x) => x.source === 'new');
+  const got = (await welcomeCandidates(s, user, { chunks, facts: noFacts })).filter((x) => x.source === 'new');
   assert.deepEqual(got.map((x) => x.title).sort(), ["Dr. Sankary's podcast", 'Nursing flowsheet changes', 'Nursing training class']);
   const ev = got.find((x) => x.title === 'Nursing training class');
   assert.equal(ev.prompt, `Tell me about "Nursing training class" on ${day(10)}.`);

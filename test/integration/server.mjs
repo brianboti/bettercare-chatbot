@@ -1,10 +1,15 @@
 // Starts a real Sophia server for integration tests: a free port, a throwaway
 // database, and no AI model (LLM_DISABLED=1, no keys, no .env), so answers
 // come from the retrieval-only path and nothing is spent.
+//
+// TEST_DATABASE=firestore (with the Firestore emulator running, see
+// `npm run test:firestore`) runs the same tests on Firestore: each server
+// gets its own collection prefix in the emulator.
 
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,14 +32,21 @@ function freePort() {
 export async function startServer({ env = {}, seed } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'sophia-it-'));
   const db = join(dir, 'sophia.db');
-  if (seed) { const s = openStore(db); seed(s); s.close(); }
+  const firestore = process.env.TEST_DATABASE === 'firestore';
+  const fsEnv = firestore ? {
+    DATABASE: 'firestore', FIRESTORE_EMULATOR_HOST: process.env.FIRESTORE_EMULATOR_HOST,
+    FIRESTORE_PROJECT_ID: process.env.FIRESTORE_PROJECT_ID || 'sophia-test', FIRESTORE_COLLECTION_PREFIX: `it${randomBytes(4).toString('hex')}_`,
+  } : {};
+  if (seed && firestore) await seedFirestore(fsEnv, seed);
+  else if (seed) { const s = openStore(db); seed(s); s.close(); }
   const port = await freePort();
   const child = spawn(process.execPath, ['server/index.mjs'], {
     cwd: ROOT,
     env: {
       PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR,
       PORT: String(port), HOST: '127.0.0.1', SOPHIA_DB: db, CHAT_LOG: join(dirname(db), 'chat.jsonl'),
-      LLM_DISABLED: '1', BACKUP_DISABLED: '1', ANTHROPIC_API_KEY: '', OPENAI_API_KEY: '',
+      LLM_DISABLED: '1', BACKUP_DISABLED: '1', ANTHROPIC_API_KEY: '', OPENAI_API_KEY: '', AUTH_MODE: 'header',
+      ...fsEnv,
       ...env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -61,6 +73,18 @@ export async function startServer({ env = {}, seed } = {}) {
       rmSync(dir, { recursive: true, force: true });
     },
   };
+}
+
+/** Run a seed written for SQLite (no awaits) against Firestore, waiting for every write. */
+async function seedFirestore(fsEnv, seed) {
+  const { Firestore } = await import('@google-cloud/firestore');
+  const { openFirestoreStore } = await import('../../server/store-firestore.mjs');
+  const firestore = new Firestore({ projectId: fsEnv.FIRESTORE_PROJECT_ID, ignoreUndefinedProperties: true });
+  const store = openFirestoreStore({ firestore, prefix: fsEnv.FIRESTORE_COLLECTION_PREFIX });
+  const pending = [];
+  seed(new Proxy(store, { get: (t, k) => (typeof t[k] === 'function' ? (...a) => { const r = t[k](...a); pending.push(r); return r; } : t[k]) }));
+  await Promise.all(pending);
+  await firestore.terminate();
 }
 
 /** POST /api/chat and collect the SSE events as [event, data] pairs. */

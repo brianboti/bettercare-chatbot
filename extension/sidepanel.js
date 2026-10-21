@@ -6,11 +6,18 @@
 //
 // Offline (server unreachable): falls back to keyword search over the corpus
 // bundled at build time (data/corpus.json) and shows matches verbatim.
+//
+// Signing in: a server with sign-in (AUTH_MODE=password, as on GCP) needs a
+// session token, kept per server in chrome.storage.local and sent as
+// "Authorization: Bearer". The panel first tries SharePoint sign-in (who is
+// signed in to SharePoint in this browser, when the server allows it), then
+// asks for a username and password. A development server (AUTH_MODE=header)
+// gets this browser's anonymous id instead.
 
-import { DEFAULT_API, health, streamChat, apiJson } from './lib/chat-api.js';
+import { DEFAULT_API, health, streamChat, apiJson, apiRequest } from './lib/chat-api.js';
+import { fetchSharePointUser, freshSaved } from './lib/sharepoint.js';
 
-// Anonymous id for this browser, so answers are saved and feedback counts.
-// (Real sign-in comes from SharePoint later.)
+// Anonymous id for this browser, for development servers without sign-in.
 const USER_ID = (() => {
   try {
     let id = localStorage.getItem('sophia-ext-user');
@@ -30,7 +37,7 @@ function feedbackRow(getTurnId) {
   let current = 0;
   const send = (body) => {
     const turnId = getTurnId();
-    return turnId ? apiJson(API, '/api/feedback', { userId: USER_ID, body: { turnId, ...body } }) : Promise.resolve(null);
+    return turnId ? apiJson(API, '/api/feedback', { ...who(), body: { turnId, ...body } }) : Promise.resolve(null);
   };
 
   const label = el('label', { class: 'feedback__label', for: `fb-${Math.random().toString(36).slice(2, 8)}` });
@@ -108,6 +115,7 @@ const ERROR_TEXT = {
   UPSTREAM_LLM: 'The AI service had a problem.',
   REFUSED: "I can't help with that one.",
   INTERNAL: 'Something went wrong on the server.',
+  SIGN_IN_REQUIRED: 'Please sign in again.',
 };
 
 const KIND_LABEL = {
@@ -142,8 +150,13 @@ const scrollDown = () => { thread().scrollTop = thread().scrollHeight; };
 // ---------------------------------------------------------------- connection
 
 let API = DEFAULT_API;
-let mode = 'checking';       // 'claude' | 'retrieval-only' | 'offline' | 'checking'
+let mode = 'checking';       // 'claude' | 'retrieval-only' | 'offline' | 'checking' | 'signin'
 let OFFLINE_INDEX = null;
+let AUTH = { mode: 'header', methods: [] };   // the server's /api/auth/config
+let SESSION = null;          // { token, user, via } on a server with sign-in
+
+/** Who is asking, for every request: the session token, or this browser's id. */
+const who = () => (AUTH.mode === 'header' ? { userId: USER_ID } : { token: SESSION?.token });
 
 async function loadSettings() {
   try {
@@ -171,9 +184,17 @@ async function connect() {
   setScope('checking', 'Connecting…');
   const h = await health(API);
   if (h?.ok) {
+    AUTH = h.auth && h.auth !== 'header' ? (await apiJson(API, '/api/auth/config')) || { mode: h.auth, methods: ['password'] } : { mode: 'header', methods: [] };
+    if (AUTH.mode !== 'header' && !(await ensureSignedIn())) {
+      mode = 'signin';
+      setScope('checking', 'Sign in to ask', '');
+      showSignIn();
+      return true;
+    }
     mode = h.mode === 'claude' ? 'claude' : 'retrieval-only';
     setScope(mode, mode === 'claude' ? 'Connected' : 'Retrieval-only mode',
       `${Number(h.chunks).toLocaleString()} items`);
+    renderAccount();
     return true;
   }
   mode = 'offline';
@@ -192,6 +213,113 @@ async function loadOfflineCorpus() {
   } catch (err) {
     console.error('[Sophia] offline corpus', err);
   }
+}
+
+// ---------------------------------------------------------------- sign-in
+
+async function savedSessions() {
+  try { return (await chrome.storage.local.get('sessions')).sessions || {}; } catch { return {}; }
+}
+async function saveSession(s) {
+  SESSION = s;
+  const all = await savedSessions();
+  if (s) all[API] = s; else delete all[API];
+  try { await chrome.storage.local.set({ sessions: all }); } catch { /* kept for this panel only */ }
+}
+
+/** Who is signed in to SharePoint in this browser: saved by launcher.js, else asked now. */
+async function sharePointUser() {
+  try {
+    const { spUser } = await chrome.storage.local.get('spUser');
+    const saved = freshSaved(spUser);
+    if (saved) return saved;
+  } catch { /* storage unavailable */ }
+  return fetchSharePointUser();
+}
+
+async function sharePointSignIn() {
+  const sp = await sharePointUser();
+  if (!sp) return { error: 'Not signed in to SharePoint in this browser. Open the BetterCare site, sign in there, and try again.' };
+  const r = await apiRequest(API, '/api/auth/sharepoint', { body: sp });
+  if (!r.ok) return { error: r.body?.message || `Sign-in failed (${r.status || 'server unreachable'}).` };
+  await saveSession({ token: r.body.token, user: r.body.user, via: 'sharepoint' });
+  return { ok: true };
+}
+
+/** A working session for this server: the saved one, else SharePoint sign-in. */
+async function ensureSignedIn() {
+  const saved = (await savedSessions())[API];
+  if (saved?.token) {
+    const r = await apiRequest(API, '/api/me', { token: saved.token });
+    if (r.ok && r.body?.user) { SESSION = { ...saved, user: r.body.user }; return true; }
+    if (r.status === 401) await saveSession(null);
+    else if (!r.ok) { SESSION = saved; return true; }    // server trouble, not a sign-out: keep it
+  }
+  if (AUTH.methods?.includes('sharepoint')) return !!(await sharePointSignIn()).ok;
+  return false;
+}
+
+function showSignIn(message = '') {
+  history.length = 0;
+  const err = el('p', { class: 'signin__error', role: 'alert', text: message, hidden: message ? null : '' });
+  const user = el('input', { id: 'signin-user', autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', required: '' });
+  const pass = el('input', { id: 'signin-pass', type: 'password', autocomplete: 'current-password', required: '' });
+  const submit = el('button', { class: 'btn', type: 'submit', text: 'Sign in' });
+  const form = el('form', { class: 'signin' }, [
+    el('h1', { text: 'Sign in to Sophia' }),
+    el('p', { class: 'signin__sub', text: `The server at ${new URL(API).host} needs you to sign in.` }),
+    err,
+    el('label', { for: 'signin-user', text: 'Username' }), user,
+    el('label', { for: 'signin-pass', text: 'Password' }), pass,
+    submit,
+  ]);
+  const fail = (m) => { err.textContent = m; err.hidden = false; };
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    submit.disabled = true;
+    const r = await apiRequest(API, '/api/auth/login', { body: { username: user.value.trim().toLowerCase(), password: pass.value, token: true } });
+    submit.disabled = false;
+    if (!r.ok) { fail(r.body?.message || (r.status ? `Sign-in failed (${r.status}).` : "Can't reach the server.")); pass.select(); return; }
+    await saveSession({ token: r.body.token, user: r.body.user, via: 'password' });
+    await connect();
+    showWelcome();
+  });
+  const nodes = [form];
+  if (AUTH.methods?.includes('sharepoint')) {
+    const sp = el('button', { class: 'btn btn--quiet', type: 'button', text: 'Use my SharePoint sign-in' });
+    sp.addEventListener('click', async () => {
+      sp.disabled = true;
+      const r = await sharePointSignIn();
+      sp.disabled = false;
+      if (r.error) { fail(r.error); return; }
+      await connect();
+      showWelcome();
+    });
+    nodes.push(el('div', { class: 'signin__alt' }, [sp, el('small', { text: 'Uses the account you are signed in to SharePoint with.' })]));
+  }
+  thread().replaceChildren(...nodes);
+  user.focus();
+}
+
+async function signOut() {
+  if (SESSION?.token) await apiRequest(API, '/api/auth/logout', { token: SESSION.token, body: {} });
+  await saveSession(null);
+  renderAccount();
+  mode = 'signin';
+  setScope('checking', 'Sign in to ask', '');
+  showSignIn();
+}
+
+/** The settings panel's account line. */
+function renderAccount() {
+  const box = $('#account');
+  if (!box) return;
+  if (AUTH.mode === 'header' || !SESSION?.user) { box.hidden = true; return; }
+  const u = SESSION.user;
+  const out = el('button', { class: 'btn btn--small btn--quiet', type: 'button', text: 'Sign out' });
+  out.addEventListener('click', signOut);
+  box.replaceChildren(el('span', { text: `Signed in as ${u.name || u.id}${SESSION.via === 'sharepoint' ? ' (from SharePoint)' : ''}` }), out);
+  box.hidden = false;
 }
 
 // ---------------------------------------------------------------- welcome
@@ -312,6 +440,7 @@ async function ask(query) {
   addUserTurn(q);
 
   if (mode === 'checking') await connect();
+  if (mode === 'signin') { showSignIn('Sign in first, then ask again.'); return; }
   if (mode === 'offline') {
     // The server may have come up since the panel opened.
     const back = await connect();
@@ -357,7 +486,7 @@ async function onlineAnswer() {
     reset: () => { text = ''; assumed = []; paint(); },
     error: (d) => { failed = d; },
     done: (d) => { turnId = d.turnId ?? null; },
-  }, controller.signal, { userId: USER_ID, conversationId: CONVERSATION_ID });
+  }, controller.signal, { ...who(), conversationId: CONVERSATION_ID });
 
   const aborted = controller.signal.aborted;
   controller = null;
@@ -367,6 +496,7 @@ async function onlineAnswer() {
   if (failed) {
     history.pop();                                   // let Retry resend the question
     if (failed.code === 'UNREACHABLE') { mode = 'offline'; connect(); }
+    if (failed.code === 'SIGN_IN_REQUIRED') { await saveSession(null); mode = 'signin'; showSignIn('Your sign-in ended. Please sign in again.'); return; }
     turn.append(errorNotice(failed, () => {
       const q = [...thread().querySelectorAll('.turn--user .bubble')].pop()?.textContent;
       turn.remove();
@@ -461,10 +591,18 @@ function initSettings() {
     e.preventDefault();
     const url = (input.value.trim() || DEFAULT_API).replace(/\/+$/, '');
     try { new URL(url); } catch { $('#settings-status').textContent = 'Not a valid URL.'; return; }
+    // A server outside the built-in list (localhost, *.run.app): ask Chrome
+    // for access to it. Asked first, while this click still counts as the
+    // user gesture Chrome requires. Declined or not grantable: the server's
+    // CORS headers may still allow it.
+    const asked = chrome.permissions?.request({ origins: [`${new URL(url).origin}/*`] }).catch(() => false);
     API = url;
     try { await chrome.storage.local.set({ apiUrl: url }); } catch { /* keep for this session */ }
+    await asked;
     $('#settings-status').textContent = 'Connecting…';
+    SESSION = null;
     const ok = await connect();
+    if (ok && mode !== 'signin') showWelcome();
     $('#settings-status').textContent = ok ? 'Connected.' : 'Not reachable — using offline search.';
     if (ok) setTimeout(() => toggle(false), 700);
   });

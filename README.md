@@ -5,46 +5,171 @@
 document, tip sheet and flyer on the site and answers with citations to the
 exact source.
 
-Two front ends share one backend:
+Two front ends share one backend, and **both are included**:
 
-| Surface | What it is | Where |
+| Interface | What it is | Where |
 |---|---|---|
-| **Chrome extension** | Side panel next to the *real* site. Works today with no SharePoint permissions. | `extension/` |
-| **Site replica** | A local, near-pixel copy of the whole site with the assistant built in — the demo of what an SPFx integration would look like. | `site/` + `data/site/` |
+| **Chrome extension** | Side panel next to the *real* SharePoint site. Signs in from SharePoint or with a password. For real users. | `extension/` |
+| **Website** (site replica) | A copy of the whole BetterCare site with Sophia built in, served by the server. For demos; needs the site export. | `site/` + `data/site/` |
 
 ```
                        ┌──────────────────────────────────────────────┐
- Chrome extension ───▶ │ server/  (node, localhost:8787)              │
- Site replica ───────▶ │   /api/chat    SSE: rewrite → retrieve → Claude │
+ Chrome extension ───▶ │ server/  (node, :8787)                       │
+ Website ────────────▶ │   /api/chat    SSE: rewrite → retrieve → Claude │
                        │   /api/search  hybrid retrieval, no LLM       │
-                       │   /sites/BetterCare/…  the replica            │
-                       └──────────────────────────────────────────────┘
-                                   ▲ data/index/chunks.json
- SharePoint ──(1) export──▶ data/site/ ──(2) npm run ingest──┘
+                       │   /signin, /api/auth/*  sign-in               │
+                       │   /sites/BetterCare/…  the website copy       │
+                       └──────┬───────────────────────────────┬───────┘
+                              │ SQLite or Firestore           │ data/index/chunks.json
+                              ▼                               │ data/embeddings.json
+                    users, history, sessions                  │
+ SharePoint ──(1) export──▶ data/site/ ──(2) npm run ingest───┘
 ```
 
 ## Quick start
 
+Node.js **24** (`.nvmrc`).
+
 ```sh
-npm install
-echo "ANTHROPIC_API_KEY=sk-ant-..." > .env      # optional; without it: retrieval-only mode
-echo "OPENAI_API_KEY=sk-..." >> .env          # optional backup when Claude can't be reached
-npm run ingest                                  # data/site -> data/index/chunks.json
-npm start                                       # http://localhost:8787
+npm ci
+cp .env.example .env        # then fill in what you need; see "Settings"
+npm start                   # http://localhost:8787
 ```
 
-- **Replica:** open <http://localhost:8787>. Use the **Search or ask Sophia**
-  box in the top bar or the **Ask Sophia** button.
+- The search index is in the repository (`data/index/chunks.json`,
+  `data/embeddings.json`), so nothing needs building to run. The first start
+  downloads the embedding model (~35 MB) once.
+- Without `ANTHROPIC_API_KEY` Sophia runs in retrieval-only mode: answers
+  show the best-matching site content.
+- **Sign-in:** by default (`AUTH_MODE=password`) everything needs a signed-in
+  person. Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env` for a first
+  admin account. For local development without sign-in, set
+  `AUTH_MODE=header`: the website's avatar menu then switches between demo
+  people.
+- **Website:** open <http://localhost:8787> (needs the site export in
+  `data/site/`; see "Data"). Without it the server still answers the extension.
 - **Extension:** `chrome://extensions` → Developer mode → Load unpacked →
-  `extension/`. See [extension/README.md](extension/README.md).
+  `extension/`; set the server address in its settings (gear icon). See
+  [extension/README.md](extension/README.md).
 
-The first start embeds the corpus locally (a few minutes on CPU); later
-starts reuse `data/embeddings.json` and only embed what changed.
+| Command | What it does |
+|---|---|
+| `npm start` | the server (`node --env-file-if-exists=.env server/index.mjs`) |
+| `npm test` | unit tests (no network, no AI, no database file) |
+| `npm run test:integration` | the real server's API, with and without sign-in |
+| `npm run test:e2e` | a real browser on the website and the extension (needs `npx playwright install chromium` and the site export) |
+| `npm run test:firestore` | the database, sign-in and API tests on Firestore's local emulator (needs `gcloud components install cloud-firestore-emulator` and Java 21+) |
+| `npm run build` | everything generated: the list corpus, the extension's offline corpus, a search check, and the search vectors (`build:index`) |
+| `npm run build:index` | the search vectors for the committed chunks (and the model download); `-- --ingest` first rebuilds the chunks from the site export |
+| `npm run users -- …` | sign-in accounts: `list`, `add <username> [--name …] [--role …] [--admin]`, `password <username>`, `admin <username> on\|off` |
+| `npm run seed:demo` | demo people, a month of questions and pushed content (`DEMO_PASSWORD` lets you sign in as them) |
+
+## Settings
+
+Every setting is an environment variable, read in one place
+(`server/config.mjs`) and listed with its default in
+[`.env.example`](.env.example). The ones a deployment sets:
+
+| Setting | Deployed value | Notes |
+|---|---|---|
+| `HOST`, `PORT` | `0.0.0.0`, `8787` | the Docker image sets both |
+| `ANTHROPIC_API_KEY` | secret | Claude; without it, retrieval-only |
+| `OPENAI_API_KEY` | secret (optional) | backup when Claude can't be reached |
+| `DATABASE` | `firestore` | `sqlite` is for laptops and tests |
+| `FIRESTORE_PROJECT_ID`, `FIRESTORE_DATABASE_ID` | your project, `(default)` | credentials come from the service account |
+| `FIRESTORE_COLLECTION_PREFIX` | e.g. `demo_` | to keep two deployments apart in one database |
+| `AUTH_MODE` | `password` | the default |
+| `ADMIN_USERNAME`, `ADMIN_PASSWORD` | `admin`, secret | the first admin, created at startup |
+| `ALLOW_SIGNUP` | `1` for an open demo | lets people make their own account |
+| `SHAREPOINT_SIGNIN` | `1` for the extension demo | see "Sign-in" |
+| `SITE_DIR` | `/data/site` | where the site export is mounted (the image's default) |
+| `CHUNKS_FILE`, `EMBEDDINGS_FILE` | in the image | the search index; override to load another |
+
+## Data
+
+| What | Where | In git? | How to make it |
+|---|---|---|---|
+| Search chunks | `data/index/chunks.json` (9.5 MB) | yes | `npm run ingest` from the site export |
+| OCR text for images and scanned PDFs | `data/index/ocr.json` | yes | `tools/ocr-with-claude.mjs` (calls Claude; costs money) |
+| Search vectors | `data/embeddings.json` (22 MB) | yes | `npm run build:index` (about 3 minutes on a laptop when built from nothing; the Docker build runs it) |
+| Embedding model | `MODEL_CACHE_DIR` | no | downloaded by `build:index` or on first start |
+| Site export | `data/site/` (5.7 GB: 5.2 GB of documents, ~590 MB of pages, lists and snapshots) | no | the exporter (step 1 below), from a browser signed in to SharePoint |
+
+The site export is only needed for the **website**, and to rebuild the
+chunks. It can't be regenerated on a server (the export runs in a signed-in
+browser), so it is supplied separately: copy it to a Cloud Storage bucket
+and mount the bucket at `SITE_DIR`:
+
+```sh
+gcloud storage rsync --recursive data/site gs://<bucket>/site
+```
+
+Without `files/` (the 5.2 GB of documents) the website still works; links
+to documents then open on the real SharePoint site.
+
+## Database
+
+`DATABASE=sqlite` keeps everything in one file (`SOPHIA_DB`, created on
+first start). `DATABASE=firestore` uses Cloud Firestore in Native mode:
+
+- Create the database once: `gcloud firestore databases create --location=<region>`.
+- Give the service account the server runs as `roles/datastore.user`.
+- No indexes to create: every query is on a single field.
+- Collections: `users`, `turns`, `events`, `llmCalls`, `promotions`,
+  `credentials`, `sessions` (each with `FIRESTORE_COLLECTION_PREFIX` in front).
+
+## Sign-in
+
+All sign-in methods end in a **session** (`server/auth.mjs`): a random token
+whose SHA-256 is stored in the database. The website keeps it in an HttpOnly
+cookie; the extension sends it as `Authorization: Bearer`.
+
+- **Password** (the demo sign-in): accounts in the database, passwords hashed
+  with scrypt. Accounts come from `ADMIN_USERNAME`, `npm run users -- add`, or
+  the sign-in page when `ALLOW_SIGNUP=1`.
+- **SharePoint** (extension, `SHAREPOINT_SIGNIN=1`): the extension reads who is
+  signed in to SharePoint in the browser (`/_api/web/currentuser`, read-only)
+  and signs them in as that work email, with no password. The server can't
+  verify what the extension sends, so this is for demos only.
+- **Microsoft (Entra ID)**, once IT registers the app: one more method that
+  validates a Microsoft ID token and starts the same kind of session. Users,
+  history and admins don't change. Use the work email as the user id so it
+  matches SharePoint sign-in.
+
+`AUTH_MODE=header` turns sign-in off and trusts the `X-Sophia-User` header.
+It's for local development and the tests only.
+
+## Deploying
+
+The [`Dockerfile`](Dockerfile) builds the server image: production
+dependencies, the embedding model, and the search vectors (`npm run
+build:index`). The container runs as the unprivileged `node` user, writes
+only under `/tmp`, logs each question as JSON to standard output, and starts
+in a few seconds (health: `GET /api/health`).
+
+```sh
+docker build -t sophia .
+docker run -p 8787:8787 --env-file .env -e DATABASE=sqlite -v "$PWD/data/site:/data/site:ro" sophia
+```
+
+On Cloud Run:
+
+- **Memory**: 1 GiB minimum (the server uses about 500 MB with the index and
+  model loaded); 2 GiB recommended. 1 vCPU is enough.
+- **Settings**: as in "Settings" above, with the keys and `ADMIN_PASSWORD`
+  from Secret Manager.
+- **Site export** (website only): a Cloud Storage volume mounted read-only at
+  `/data/site`.
+- **Database**: Firestore, as in "Database". SQLite in the container would
+  lose everything on each restart.
+- **Extension**: it already allows `https://*.run.app`; set the service URL
+  in its settings. A custom domain is asked for once when you save it.
 
 ## Personal assistant features
 
-Sophia knows who is asking (in the replica, pick a person from the avatar
-menu next to **Ask Sophia**; "Someone new" shows the first-visit introduction):
+Sophia knows who is asking: the signed-in person (or, with
+`AUTH_MODE=header`, the person picked in the avatar menu next to **Ask
+Sophia**; "Someone new" shows the first-visit introduction):
 
 - **Introduction** on first visit: asks your name and role, one question at a time.
 - **Welcome cards** built for you: what Clinical IT wants your role to see, a next
@@ -52,21 +177,18 @@ menu next to **Ask Sophia**; "Someone new" shows the first-visit introduction):
 - **History** (clock icon): past conversations, reopen and continue.
 - **Answers sized to the question**, with quick replies when Sophia needs one more
   detail, related questions, thumbs up/down, **Shorter** and **More detail**.
-- **Insights dashboard** at `/admin` (sign in as Taylor Brooks): what people ask by
+- **Insights dashboard** at `/admin` (an admin account, e.g. Taylor Brooks from the demo data): what people ask by
   role and topic, where they struggle, what they open, and the pushed content.
-
-```sh
-npm run seed:demo      # demo people, a month of questions, 3 pushed items (demo=1)
-npm test               # unit tests
-```
 
 Plans and status: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Safety rule
 
 **Everything that touches SharePoint is read-only.** The exporter issues only
-HTTP `GET`s from a signed-in browser tab. Do not add `POST`, `X-HTTP-Method`,
-or `$batch` to anything here. The server never contacts SharePoint.
+HTTP `GET`s from a signed-in browser tab, and the extension's only SharePoint
+request is `GET /_api/web/currentuser` (who is signed in). Do not add `POST`,
+`X-HTTP-Method`, or `$batch` to anything here. The server never contacts
+SharePoint.
 
 ## 1. Export (full site, read-only)
 
@@ -151,8 +273,9 @@ on the live site.
   cover something. Server-side refusal fallback is on (`fallbacks: "default"`).
 - **SSE protocol** documented in `extension/lib/chat-api.js` — every stream
   ends in exactly one `done` or `error`.
-- **Chat log** per turn in `data/logs/chat.jsonl` (question, rewrite,
-  retrieved ids + scores, prompt version, model, usage, latency).
+- **Chat log** per turn in `CHAT_LOG` (`data/logs/chat.jsonl`, or standard
+  output in Docker): question, rewrite, retrieved ids + scores, prompt
+  version, model, usage, latency.
 
 Config lives in `server/config.mjs` (env overrides): model, effort, top-k,
 candidates, confidence threshold, rate limit.
@@ -203,14 +326,15 @@ show their state at export time and editing controls are removed. Specifics:
 
 The replica is the target experience. To ship it:
 
-1. **Backend hosting** — run `server/` somewhere reachable (Azure App Service /
-   container). Swap the local export for Graph delta sync (`site-chatbot-spec.md`
-   §6–7, D1b) once an admin grants `Sites.Selected` (§13 has the request).
+1. **Backend hosting** — the Docker image runs on GCP (see "Deploying"). Swap
+   the local export for Graph delta sync (`site-chatbot-spec.md` §6–7, D1b)
+   once an admin grants `Sites.Selected` (§13 has the request).
 2. **Front end** — package `site/assistant.js` as an SPFx application
    customizer (it already targets SharePoint's DOM: suite bar search, site
    header, canvas zones). Needs a site-collection app catalog (§13).
-3. **Auth** — MSAL in the SPFx package, bearer-token validation on the server
-   (spec §7.7).
+3. **Auth** — Microsoft sign-in as a method in `server/auth.mjs` (see
+   "Sign-in"); MSAL in the SPFx package, bearer-token validation on the
+   server (spec §7.7).
 4. **Permissions** — the corpus currently ignores item-level permissions.
    Several libraries and pages have unique permissions; resolve that (spec
    §4 P1, D2) before exposing the assistant beyond the site's owners.
@@ -228,7 +352,7 @@ npm run release -- patch      # or minor / major
 git push lab main --follow-tags
 ```
 
-bumps `package.json` and the extension manifest, dates the changelog
+bumps `package.json`, `package-lock.json` and the extension manifest, dates the changelog
 section, commits, and tags `vX.Y.Z`. The running version shows in the admin
 panel's footer, in `/api/health`, at server start and in every line of
 `data/logs/chat.jsonl`.
@@ -237,7 +361,7 @@ panel's footer, in `/api/health`, at server start and in every line of
 
 | Path | Purpose |
 |---|---|
-| `server/` | API + retrieval + Claude + replica host. `config.mjs` holds every tunable. |
+| `server/` | API + retrieval + Claude + replica host. `config.mjs` holds every setting; `auth.mjs` sign-in; `store.mjs` / `store-firestore.mjs` the two databases. |
 | `site/` | Replica renderer (`server.mjs`) and the integrated assistant UI. |
 | `extension/` | Chrome MV3 side panel. `lib/` is shared with the replica. |
 | `src/extract.mjs`, `src/lists.config.mjs` | List rows → chunks. All list-specific knowledge lives in the config. |
@@ -246,7 +370,9 @@ panel's footer, in `/api/health`, at server start and in every line of
 | `tools/ocr-with-claude.mjs` | Transcribe images and scanned PDFs. |
 | `tools/eval-retrieval.mjs` | Retrieval eval. |
 | `site-chatbot-spec.md` | The production architecture spec this follows. |
-| `data/site/`, `data/index/` | Export and corpus — generated, git-ignored. |
+| `data/index/chunks.json`, `data/embeddings.json` | The search index (committed). |
+| `data/site/` | The site export — supplied separately, git-ignored. |
+| `Dockerfile` | The deployable server image. |
 
 The original list-only pipeline (`npm run build`: `data/bettercare-corpus.json`
 → `data/chunks.json` → the extension's bundled offline corpus) still works and
