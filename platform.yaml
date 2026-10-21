@@ -13,9 +13,9 @@ scaling:
   minimum: 0
   maximum: 2
 concurrency: 80
-# Programs with a Google identity token only, until Identity-Aware Proxy for people is set up (docs/SETUP.md 7h);
-# then lab-members. Meanwhile a person opens it with `gcloud run services proxy sophia-bettercare --region us-central1`.
-exposure: authenticated
+# People, after a Google sign-in (Identity-Aware Proxy): only the accounts the operator lists get through, then the
+# app's own sign-in. /api/health stays reachable to Cloud Run's startup probe, which does not pass the proxy.
+exposure: lab-members
 state: stateless
 dependencies: []
 gpu: false
