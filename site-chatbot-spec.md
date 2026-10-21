@@ -1,5 +1,12 @@
 # Spec: AI Chat over a SharePoint Site
 
+> **Status (v3).** This is the original long-term spec. What's built differs in
+> storage: the search index is files loaded into memory (BM25 + local
+> embeddings), not PostgreSQL + pgvector, and the app database is Firestore
+> (SQLite on a laptop). The README's "Settings", "Data", "Database" and
+> "Deploying" sections describe the deployment. The Graph sync, SPFx and
+> Entra ID parts are still the plan.
+
 A chat assistant that answers questions from the content of one SharePoint Online site,
 with citations back to the source documents.
 

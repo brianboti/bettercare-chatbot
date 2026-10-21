@@ -38,12 +38,12 @@ npm start                   # http://localhost:8787
 
 - The search index is in the repository (`data/index/chunks.json`,
   `data/embeddings.json`), so nothing needs building to run. The first start
-  downloads the embedding model (~35 MB) once.
+  downloads the embedding model (~35 MB) into `.models/` once.
 - Without `ANTHROPIC_API_KEY` Sophia runs in retrieval-only mode: answers
   show the best-matching site content.
 - **Sign-in:** by default (`AUTH_MODE=password`) everything needs a signed-in
-  person. Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env` for a first
-  admin account. For local development without sign-in, set
+  person. Set `ADMIN_PASSWORD` in `.env` for a first admin account,
+  `admin` (or `ADMIN_USERNAME`). For local development without sign-in, set
   `AUTH_MODE=header`: the website's avatar menu then switches between demo
   people.
 - **Website:** open <http://localhost:8787> (needs the site export in
@@ -68,21 +68,26 @@ npm start                   # http://localhost:8787
 
 Every setting is an environment variable, read in one place
 (`server/config.mjs`) and listed with its default in
-[`.env.example`](.env.example). The ones a deployment sets:
+[`.env.example`](.env.example). A few defaults depend on where the server
+runs: **deployed** (on Google Cloud, or in the Docker image, which sets
+`NODE_ENV=production`) it listens on `0.0.0.0`, uses Firestore, logs to
+standard output and writes only under `/tmp`; on a laptop it listens on
+`127.0.0.1` and keeps everything under `data/`. A deployment only has to
+set the secrets.
 
 | Setting | Deployed value | Notes |
 |---|---|---|
-| `HOST`, `PORT` | `0.0.0.0`, `8787` | the Docker image sets both; on Cloud Run, GKE or App Engine `HOST` defaults to `0.0.0.0` anyway |
+| `HOST`, `PORT` | `0.0.0.0`, `8787` | the defaults when deployed; the Docker image also sets both |
 | `ANTHROPIC_API_KEY` | secret | Claude; without it, retrieval-only |
 | `OPENAI_API_KEY` | secret (optional) | backup when Claude can't be reached |
-| `DATABASE` | `firestore` | `sqlite` is for laptops and tests |
+| `DATABASE` | `firestore` | the default when deployed; `sqlite` is for laptops and tests |
 | `FIRESTORE_PROJECT_ID`, `FIRESTORE_DATABASE_ID` | your project, `(default)` | credentials come from the service account |
 | `FIRESTORE_COLLECTION_PREFIX` | e.g. `demo_` | to keep two deployments apart in one database |
 | `AUTH_MODE` | `password` | the default |
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | `admin`, secret | the first admin, created at startup |
 | `ALLOW_SIGNUP` | `1` for an open demo | lets people make their own account |
 | `SHAREPOINT_SIGNIN` | `1` for the extension demo | see "Sign-in" |
-| `SITE_DIR` | `/data/site` | where the site export is mounted (the image's default) |
+| `SITE_DIR` | `/data/site` | where the site export is mounted (the default when deployed) |
 | `CHUNKS_FILE`, `EMBEDDINGS_FILE` | in the image | the search index; override to load another |
 
 ## Data
@@ -92,7 +97,7 @@ Every setting is an environment variable, read in one place
 | Search chunks | `data/index/chunks.json` (9.5 MB) | yes | `npm run ingest` from the site export |
 | OCR text for images and scanned PDFs | `data/index/ocr.json` | yes | `tools/ocr-with-claude.mjs` (calls Claude; costs money) |
 | Search vectors | `data/embeddings.json` (22 MB) | yes | `npm run build:index` (about 3 minutes on a laptop when built from nothing; the Docker build runs it) |
-| Embedding model | `MODEL_CACHE_DIR` | no | downloaded by `build:index` or on first start |
+| Embedding model | `.models/` (`MODEL_CACHE_DIR`) | no | downloaded by `build:index` or on first start |
 | Site export | `data/site/` (5.7 GB: 5.2 GB of documents, ~590 MB of pages, lists and snapshots) | no | the exporter (step 1 below), from a browser signed in to SharePoint |
 
 The site export is only needed for the **website**, and to rebuild the
@@ -141,9 +146,11 @@ It's for local development and the tests only.
 
 ## Deploying
 
-The [`Dockerfile`](Dockerfile) builds the server image: production
-dependencies, the embedding model, and the search vectors (`npm run
-build:index`). The container runs as the unprivileged `node` user, writes
+Build with the repository's [`Dockerfile`](Dockerfile), not a generated
+one. It builds the server image: production dependencies, the embedding
+model, and the search vectors (`npm run build:index`). A generic Node image
+skips that step, so the server would try to download the model at startup
+into a folder it can't write. The container runs as the unprivileged `node` user, writes
 only under `/tmp`, logs each question as JSON to standard output, and starts
 in a few seconds (health: `GET /api/health`).
 
@@ -369,11 +376,13 @@ panel's footer, in `/api/health`, at server start and in every line of
 | `tools/export-*.{js,mjs}` | Read-only site exporter + local receiver. |
 | `tools/ocr-with-claude.mjs` | Transcribe images and scanned PDFs. |
 | `tools/eval-retrieval.mjs` | Retrieval eval. |
-| `site-chatbot-spec.md` | The production architecture spec this follows. |
+| `site-chatbot-spec.md` | The original long-term spec (Microsoft Graph sync, SPFx, Entra ID). Its storage choices (PostgreSQL, pgvector) are superseded: see "Database" and "Data". |
+| `docs/` | Architecture, roadmap, design spec, testing. |
 | `data/index/chunks.json`, `data/embeddings.json` | The search index (committed). |
 | `data/site/` | The site export — supplied separately, git-ignored. |
 | `Dockerfile` | The deployable server image. |
 
-The original list-only pipeline (`npm run build`: `data/bettercare-corpus.json`
-→ `data/chunks.json` → the extension's bundled offline corpus) still works and
-is what the extension falls back to when the server is unreachable.
+The extension's offline fallback, used when the server is unreachable, is
+built by `npm run build` from the original list-only corpus
+(`data/bettercare-corpus.json` → `data/chunks.json` →
+`extension/data/corpus.json`).

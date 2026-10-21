@@ -12,3 +12,4 @@ data/eval
 data/index/extract-cache.json
 data/index/report.json
 **/.DS_Store
+.models

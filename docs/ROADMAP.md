@@ -19,8 +19,9 @@ Reference point: Meta's **Muse** (Sept 2026). What we're borrowing:
 ### 1. Know who the user is
 - [x*] Identify the signed-in user.
   - Replica (demo): a "signed in as" switcher with demo people in different roles.
-  - Chrome extension (not yet): read the SharePoint user from the signed-in tab
-    (`/_api/web/currentuser`, `/_api/SP.UserProfiles.PeopleManager/GetMyProperties`, GET only).
+  - Chrome extension (done, v3): reads the SharePoint user from the signed-in tab
+    (`/_api/web/currentuser`, GET only) and signs in as them (`SHAREPOINT_SIGNIN=1`, demo only).
+  - Deployed (done, v3): password sign-in with sessions (`server/auth.mjs`).
   - Production (SPFx): the page context gives the user; the server validates an Entra ID token.
 - [x*] First-run introduction, Muse-style: Sophia introduces itself and asks the
       person's role (and name, when sign-in doesn't provide it).
@@ -61,7 +62,7 @@ Reference point: Meta's **Muse** (Sept 2026). What we're borrowing:
 - [x*] Performance of pushed content (shown / clicked).
 
 ### How it's built (phase 1)
-- `server/store.mjs`: SQLite (`data/sophia.db`, Node's built-in `node:sqlite`): users, turns, events, promotions, and the insights queries.
+- `server/store.mjs`: SQLite (`data/sophia.db`, Node's built-in `node:sqlite`) on a laptop; `server/store-firestore.mjs`: the same methods on Firestore when deployed. Both use `server/insights.mjs` for the dashboard.
 - `server/personalize.mjs`: the `<person>` block sent with each question, and the welcome screen (candidates chosen in code, phrased by Claude).
 - `server/followups.mjs`: cuts the `<suggestions>` block out of the streamed answer.
 - `server/topics.mjs`: the topic list and the roles offered at first run.
@@ -70,8 +71,10 @@ Reference point: Meta's **Muse** (Sept 2026). What we're borrowing:
 - `npm run seed:demo`: demo people, a month of questions and three pushed items (all marked demo, removable with `-- --clear`).
 
 ### Still to decide / production notes
-- **Identity is trusted, not verified, in the demo.** The server takes the `X-Sophia-User`
-  header at face value. Production must validate an Entra ID token instead.
+- **Identity.** Deployed, people sign in with a password (or, in the extension
+  with `SHAREPOINT_SIGNIN=1`, as their SharePoint identity, which the server can't
+  verify). `AUTH_MODE=header` trusts `X-Sophia-User` and is for local development only.
+  Production should validate an Entra ID token instead.
 - **Privacy.** Questions are stored with the person's identity. Before production:
   a retention period, a notice in the pane, and who can see individual questions.
   The dashboard shows role, not name, by default.
@@ -85,13 +88,13 @@ Reference point: Meta's **Muse** (Sept 2026). What we're borrowing:
 Goal: every change is checked automatically, including the UI, and an AI agent
 exercises the app like a user and reports what happened; Claude then checks that report.
 
-- [~] **Unit tests** (`npm test`, started with the phase 1 modules: store, suggestion parsing, topics, prompt): retrieval, fact resolution, chunking, prompt
+- [x] **Unit tests** (`npm test`, started with the phase 1 modules: store, suggestion parsing, topics, prompt): retrieval, fact resolution, chunking, prompt
       building, the user store, suggestion ranking, stream parsing. Run on every commit.
 - [ ] **Retrieval eval** (exists: `npm run eval`) wired into the same test run, failing
       below the current baseline (recall 30/30, MRR 0.79, off-topic 5/5).
-- [ ] **API tests**: start the server against a small fixture corpus with the LLM
+- [x] **API tests**: start the server against a small fixture corpus with the LLM
       stubbed; check the SSE protocol, history, suggestions, admin endpoints.
-- [ ] **Browser tests** (Playwright, headless Chrome): scripted flows in the replica —
+- [x] **Browser tests** (Playwright, headless Chrome): scripted flows in the replica —
       onboarding, ask, open a citation, history, feedback, admin dashboard.
 - [ ] **Agent-driven exploratory testing**: an AI agent drives a real browser with a
       list of scenarios ("you're a new nurse; find how to set up Haiku"), records

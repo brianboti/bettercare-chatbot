@@ -16,7 +16,7 @@ let extractor = null;
 async function model() {
   if (!extractor) {
     const { pipeline, env } = await import('@huggingface/transformers');
-    if (config.MODEL_CACHE_DIR) env.cacheDir = config.MODEL_CACHE_DIR;
+    env.cacheDir = config.MODEL_CACHE_DIR;
     extractor = await pipeline('feature-extraction', config.EMBEDDING_MODEL, { dtype: 'q8' });
   }
   return extractor;

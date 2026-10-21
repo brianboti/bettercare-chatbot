@@ -1,4 +1,4 @@
-// Covers: Server settings read from the environment: defaults, numbers, the model effort level, and turning the AI and the backup provider off.
+// Covers: Server settings read from the environment: defaults, numbers, the model effort level, turning the AI and the backup provider off, and the deployed defaults (address, database, where files go).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -27,13 +27,38 @@ test('defaults with an empty environment', () => {
   assert.equal(config.RETRIEVAL_TOP_K, 8);
   assert.equal(config.LOW_CONFIDENCE_THRESHOLD, 0.69);
   assert.match(config.DB_FILE, /data\/sophia\.db$/);
+  assert.equal(config.ADMIN_USERNAME, 'admin', 'ADMIN_PASSWORD alone creates the admin account "admin"');
 });
 
-test('HOST: every interface on Google Cloud (Cloud Run, GKE, App Engine), this machine only elsewhere; HOST wins', () => {
+test('HOST: every interface when deployed (Cloud Run, GKE, App Engine, the Docker image), this machine only elsewhere; HOST wins', () => {
   assert.equal(load({ K_SERVICE: 'sophia' }).config.HOST, '0.0.0.0');
   assert.equal(load({ KUBERNETES_SERVICE_HOST: '10.0.0.1' }).config.HOST, '0.0.0.0');
   assert.equal(load({ GAE_SERVICE: 'default' }).config.HOST, '0.0.0.0');
+  assert.equal(load({ NODE_ENV: 'production' }).config.HOST, '0.0.0.0');
   assert.equal(load({ K_SERVICE: 'sophia', HOST: '127.0.0.1' }).config.HOST, '127.0.0.1');
+});
+
+test('deployed: Firestore, port 8787, writes only under the temp folder, site export at /data/site; empty values mean these defaults', () => {
+  for (const env of [{ K_SERVICE: 'sophia' }, { NODE_ENV: 'production', DATABASE: '', SITE_DIR: '', CHAT_LOG: '' }]) {
+    const { config } = load(env);
+    assert.equal(config.PORT, 8787);
+    assert.equal(config.DATABASE, 'firestore');
+    assert.equal(config.SITE_DIR, '/data/site');
+    assert.equal(config.CHAT_LOG, '-', 'logs go to standard output');
+    assert.match(config.DB_FILE, /\/sophia\/sophia\.db$/);
+    assert.ok(!config.DB_FILE.includes('/data/'), 'the SQLite file, if chosen, is in the temp folder');
+    assert.ok(!config.TEST_RESULTS_DIR.includes('/data/'), 'test results go to the temp folder');
+  }
+  assert.equal(load({ K_SERVICE: 'sophia', DATABASE: 'sqlite' }).config.DATABASE, 'sqlite', 'DATABASE wins');
+});
+
+test('on a laptop: SQLite and everything under data/; the model cache is .models/ everywhere', () => {
+  const { config } = load();
+  assert.equal(config.DATABASE, 'sqlite');
+  assert.match(config.SITE_DIR, /data\/site$/);
+  assert.match(config.CHAT_LOG, /data\/logs\/chat\.jsonl$/);
+  assert.match(config.MODEL_CACHE_DIR, /\.models$/);
+  assert.match(load({ K_SERVICE: 'sophia' }).config.MODEL_CACHE_DIR, /\.models$/);
 });
 
 test('numbers are read from the environment; an empty value means the default', () => {

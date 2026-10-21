@@ -17,6 +17,32 @@ Changes to docs or tests alone don't need a release.
 
 ## Unreleased
 
+### Changed
+- Deployed (Google Cloud, or the Docker image with `NODE_ENV=production`),
+  the defaults are now the deployment's: listen on `0.0.0.0:8787`,
+  Firestore, logs to standard output, site export at `/data/site`, and
+  writes only under the temp folder. A setting left empty means that
+  default, so `.env.example` copied as is (or blank values) can't point a
+  deployment at laptop paths or SQLite. The Dockerfile sets only
+  `NODE_ENV`, `HOST` and `PORT`.
+- `.env.example`: settings whose default depends on where the server runs
+  are left empty, with both defaults in the comment; it says which settings
+  a deployment needs (the two secrets).
+- The embedding model is cached in `.models/` everywhere (it was inside
+  `node_modules` locally).
+- Docs no longer contradict the deployment: the architecture uses Firestore
+  (not Cloud SQL / pgvector), the roadmap describes the real sign-in, and
+  the original spec is marked as superseded on storage. The README says to
+  build with the repository's Dockerfile.
+
+### Fixed
+- `ADMIN_PASSWORD` alone now creates the admin account `admin`, as
+  `.env.example` and the README say. Before, without `ADMIN_USERNAME`, no
+  account was created and nobody could sign in.
+
+### Removed
+- `design/extension-mockup.html`, an unused static mockup.
+
 ## [3.0.1] — 2026-10-21
 
 ### Changed

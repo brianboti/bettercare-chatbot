@@ -12,3 +12,4 @@ data/logs/
 data/sophia.db*
 data/eval/
 dist/
+.models/

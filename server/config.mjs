@@ -3,9 +3,12 @@
 // Load a .env file with:  node --env-file-if-exists=.env server/index.mjs
 
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const env = process.env;
 const fromRoot = (rel) => fileURLToPath(new URL(`../${rel}`, import.meta.url));
+const inTmp = (rel) => join(tmpdir(), 'sophia', rel);
 const list = (v) => String(v || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
 
 const int = (key, dflt) => {
@@ -16,6 +19,13 @@ const int = (key, dflt) => {
   return n;
 };
 
+// Deployed: on Google Cloud (Cloud Run, GKE, App Engine) or in the Docker
+// image (NODE_ENV=production). A deployed server listens on every interface,
+// keeps its data in Firestore and writes only under the temp folder; a
+// laptop listens on this machine only and keeps everything under data/.
+// Each of those settings, when set, wins.
+const DEPLOYED = Boolean(env.K_SERVICE || env.KUBERNETES_SERVICE_HOST || env.GAE_SERVICE || env.NODE_ENV === 'production');
+
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 export const config = Object.freeze({
@@ -23,9 +33,7 @@ export const config = Object.freeze({
   SITE_URL: env.SITE_URL || 'https://uthealthsa.sharepoint.com/sites/BetterCare',
 
   PORT: int('PORT', 8787),
-  // On Google Cloud (Cloud Run, GKE, App Engine) listen on every interface
-  // so the platform can reach the server; on a laptop, only this machine.
-  HOST: env.HOST || (env.K_SERVICE || env.KUBERNETES_SERVICE_HOST || env.GAE_SERVICE ? '0.0.0.0' : '127.0.0.1'),
+  HOST: env.HOST || (DEPLOYED ? '0.0.0.0' : '127.0.0.1'),
 
   // Credentials are resolved by the SDK (ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN,
   // or an `ant auth login` profile). With none, the server runs retrieval-only.
@@ -78,17 +86,18 @@ export const config = Object.freeze({
   // Vector cache for the chunks. Built by `npm run build:index` (the Docker
   // build runs it); the server only writes it when the chunks changed.
   EMBEDDINGS_FILE: env.EMBEDDINGS_FILE || fromRoot('data/embeddings.json'),
-  // Where the embedding model is downloaded and read from (transformers.js
-  // cache). Empty: the library's default, inside node_modules.
-  MODEL_CACHE_DIR: env.MODEL_CACHE_DIR || '',
+  // Where the embedding model is downloaded and read from. The Docker build
+  // downloads it there, so a deployed server never does.
+  MODEL_CACHE_DIR: env.MODEL_CACHE_DIR || fromRoot('.models'),
   // The BetterCare site export served as the website (pages, snapshots,
   // lists, files). Optional: without it the API and the extension still work.
-  SITE_DIR: env.SITE_DIR || fromRoot('data/site'),
+  // Deployed, a read-only volume (a Cloud Storage bucket) mounted here.
+  SITE_DIR: env.SITE_DIR || (DEPLOYED ? '/data/site' : fromRoot('data/site')),
   // Saved results of the admin panel's Tests tab.
-  TEST_RESULTS_DIR: env.TEST_RESULTS_DIR || fromRoot('data/eval'),
+  TEST_RESULTS_DIR: env.TEST_RESULTS_DIR || (DEPLOYED ? inTmp('test-results') : fromRoot('data/eval')),
   // Per-turn diagnostics (JSON lines). "-" writes them to standard output
   // (Cloud Logging on GCP), "off" turns them off. Tests point it at a temp file.
-  CHAT_LOG: env.CHAT_LOG || fromRoot('data/logs/chat.jsonl'),
+  CHAT_LOG: env.CHAT_LOG || (DEPLOYED ? '-' : fromRoot('data/logs/chat.jsonl')),
 
   // ------------------------------------------------------------ database
   // Users, question history, feedback, pushed content, sign-in sessions.
@@ -96,11 +105,12 @@ export const config = Object.freeze({
   //   firestore  Google Cloud Firestore; credentials come from the service
   //              account on GCP (or `gcloud auth application-default login`)
   DATABASE: (() => {
-    const d = (env.DATABASE || 'sqlite').toLowerCase();
+    const d = (env.DATABASE || (DEPLOYED ? 'firestore' : 'sqlite')).toLowerCase();
     if (!['sqlite', 'firestore'].includes(d)) throw new Error('config: DATABASE must be sqlite or firestore');
     return d;
   })(),
-  DB_FILE: env.SOPHIA_DB || fromRoot('data/sophia.db'),
+  // Deployed, the file is lost on every restart: use Firestore there.
+  DB_FILE: env.SOPHIA_DB || (DEPLOYED ? inTmp('sophia.db') : fromRoot('data/sophia.db')),
   // Empty project: the one the service account belongs to (automatic on GCP).
   FIRESTORE_PROJECT_ID: env.FIRESTORE_PROJECT_ID || env.GOOGLE_CLOUD_PROJECT || '',
   FIRESTORE_DATABASE_ID: env.FIRESTORE_DATABASE_ID || '(default)',
@@ -128,8 +138,9 @@ export const config = Object.freeze({
   // sign-in is set up.
   SHAREPOINT_SIGNIN: env.SHAREPOINT_SIGNIN === '1',
   SHAREPOINT_EMAIL_DOMAINS: list(env.SHAREPOINT_EMAIL_DOMAINS ?? 'uthscsa.edu,uthealthsa.org'),
-  // Created (or its password reset) at startup, as an admin. Optional.
-  ADMIN_USERNAME: (env.ADMIN_USERNAME || '').trim().toLowerCase(),
+  // Created (or its password reset) at startup, as an admin, when
+  // ADMIN_PASSWORD is set.
+  ADMIN_USERNAME: (env.ADMIN_USERNAME || 'admin').trim().toLowerCase(),
   ADMIN_PASSWORD: env.ADMIN_PASSWORD || '',
   // These people are admins whenever they sign in (usernames or emails).
   ADMIN_USERS: list(env.ADMIN_USERS),

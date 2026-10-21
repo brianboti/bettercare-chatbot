@@ -9,7 +9,7 @@
 //    only someone with the export can do (see README, "Data").
 // 2. The vectors (EMBEDDINGS_FILE, data/embeddings.json) are computed here
 //    from the chunks with the local embedding model, which is downloaded to
-//    MODEL_CACHE_DIR (or the library's default) the first time. The server
+//    MODEL_CACHE_DIR (.models/) the first time. The server
 //    reuses them and only embeds chunks that changed, so with this done it
 //    starts in seconds instead of minutes.
 //
