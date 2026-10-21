@@ -17,6 +17,8 @@ Changes to docs or tests alone don't need a release.
 
 ## Unreleased
 
+## [3.0.2] — 2026-10-21
+
 ### Changed
 - Deployed (Google Cloud, or the Docker image with `NODE_ENV=production`),
   the defaults are now the deployment's: listen on `0.0.0.0:8787`,
