@@ -13,7 +13,10 @@
 FROM node:24-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --no-audit --no-fund \
+# Install scripts off: on linux/x64 (Cloud Run) onnxruntime-node's postinstall downloads its CUDA and TensorRT
+# providers from NuGet (a 236 MB package) that a CPU-only service never loads; its CPU binaries ship in the package,
+# and protobufjs's postinstall only prints a version warning.
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
  # The ONNX runtime ships Windows and macOS builds too; keep this platform's (saves ~220 MB).
  && find node_modules/onnxruntime-node/bin -mindepth 2 -maxdepth 2 -type d ! -name linux -exec rm -rf {} +
 COPY . .
