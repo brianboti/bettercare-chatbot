@@ -1,0 +1,34 @@
+# Drafted by Fast Deploy from this repository (docs/DEVELOPER-CONTRACT.md, section 5). Nothing is deployed until a person
+# has checked every value (size, scaling, timeout, env, secret names, needs) and set reviewed: true.
+api_version: lab/v1
+name: sophia-bettercare
+runtime: node-http
+port: 8787
+health_path: /api/health
+resources:
+  cpu: 1
+  memory_mib: 512
+scaling:
+  minimum: 0
+  maximum: 2
+concurrency: 80
+exposure: authenticated
+state: stateless
+dependencies: []
+gpu: false
+env: {}
+secrets: []
+tests: required
+node: '24'
+timeout_seconds: 60
+needs:
+  buckets: []
+  topics: []
+  database: none
+  migrate: []
+  database_auth: iam
+  database_tier: standard
+build:
+  context: service
+domain: null
+reviewed: false
