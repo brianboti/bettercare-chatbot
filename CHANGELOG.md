@@ -17,6 +17,8 @@ Changes to docs or tests alone don't need a release.
 
 ## Unreleased
 
+## [3.0.0] — 2026-10-21
+
 Ready to deploy on GCP (the Fast Deploy checklist): a Docker image, Firestore,
 sign-in, and every file location set by a setting.
 
