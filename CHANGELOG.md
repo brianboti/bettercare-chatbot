@@ -17,6 +17,8 @@ Changes to docs or tests alone don't need a release.
 
 ## Unreleased
 
+## [3.0.1] — 2026-10-21
+
 ### Changed
 - On Google Cloud (Cloud Run, GKE, App Engine) the server listens on
   `0.0.0.0` without being told, so it is reachable even when started with
