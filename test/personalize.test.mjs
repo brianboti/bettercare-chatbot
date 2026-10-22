@@ -8,7 +8,9 @@ const { describePerson, welcomeCandidates, welcome } = await import('../server/p
 const llm = await import('../server/llm.mjs');
 
 const ago = (days, mins = 0) => new Date(Date.now() - days * 86_400_000 + mins * 60_000).toISOString();
-const day = (offset) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+// A calendar day in Chicago, as server/personalize.mjs counts "today": in UTC the test's yesterday is the server's today
+// from 7 pm Central on, and the cards test failed then.
+const day = (offset) => new Date(Date.now() + offset * 86_400_000).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
 const chicagoDay = (iso) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' });
 
 let n = 0;
