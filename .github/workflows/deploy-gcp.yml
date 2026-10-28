@@ -736,7 +736,7 @@ jobs:
           "$RUNNER_TEMP/trivy" image --input bundle/image.tar --format cyclonedx --output bundle/sbom.cdx.json --quiet --skip-version-check
           python -m labdeploy.sbom bundle/sbom.cdx.json
       # D69: the test image the jobs build on, made by the job `base`, which runs none of this application's code.
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: steps.jobs.outputs.has_base == 'true'
         with:
           name: base-image
@@ -812,7 +812,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install --require-hashes -r platform/requirements.lock
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: inputs.image_digest == ''
         with:
           name: release-bundle
@@ -1098,7 +1098,7 @@ jobs:
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       REPOSITORY: ${{ github.repository }}
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
           name: release-receipt
