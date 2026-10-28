@@ -36,7 +36,7 @@
     "linkedom": "^0.18.13",
     "mammoth": "^1.13.0",
     "openai": "^7.31.0",
-    "unpdf": "^1.8.1"
+    "unpdf": "^1.9.1"
   },
   "allowScripts": {
     "onnxruntime-node@1.30.0": true,
