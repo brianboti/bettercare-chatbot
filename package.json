@@ -28,7 +28,7 @@
     "test:firestore": "node tools/test-firestore.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.134.0",
+    "@anthropic-ai/sdk": "^1.0.0",
     "@google-cloud/firestore": "^9.3.1",
     "@huggingface/transformers": "^4.3.1",
     "exceljs": "^4.4.0",
