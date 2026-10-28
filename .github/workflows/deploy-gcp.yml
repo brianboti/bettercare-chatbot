@@ -148,7 +148,7 @@ jobs:
           mkdir -p base-image
           docker save "lab-base:$COMMIT_SHA" -o base-image/image.tar
           sha256sum base-image/image.tar | cut -d' ' -f1 > base-image/image.sha256
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: base-image
           path: base-image/
@@ -765,7 +765,7 @@ jobs:
           if [ "$HAS_BASE" = "true" ]; then BASE_IMAGE="lab-base:$COMMIT_SHA"; fi
           python -m labdeploy.jobimages build "$SPEC_SOURCE" --app-dir "$APP_DIR" --app-path "$APP_PATH" --out bundle/jobs --trust "$TRUST" \
             --network "$NETWORK" --base-image "$BASE_IMAGE" --base "$BASE_INPUT"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-bundle
           path: bundle/
@@ -1072,7 +1072,7 @@ jobs:
         id: url
         shell: bash
         run: echo "url=$(python -c 'import json; print(json.load(open("release-receipt.json")).get("url", ""))')" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: release-receipt
