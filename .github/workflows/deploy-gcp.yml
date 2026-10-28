@@ -104,7 +104,7 @@ jobs:
           persist-credentials: false
           path: platform
           token: ${{ secrets.PLATFORM_READ_TOKEN || github.token }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
       - name: Install the platform's dependencies
@@ -192,7 +192,7 @@ jobs:
           path: platform
           # For a private platform repo: read-only fine-grained token or App token.
           token: ${{ secrets.PLATFORM_READ_TOKEN || github.token }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
       - name: Install trusted platform dependencies
@@ -324,7 +324,7 @@ jobs:
           python -m labdeploy.leaks "$RUNNER_TEMP/secrets-checkout.jsonl" --trust "$TRUST" --where checkout --strip app/ --json bundle/secrets-checkout.json
       # The application's own Python (platform.yaml `python`) for its tests and its dependency audit; the platform's steps
       # keep theirs on PATH. The Python steps run for python-http only; a Node.js service has its own below.
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         id: app-python
         if: steps.policy.outputs.runtime == 'python-http'
         with:
@@ -808,7 +808,7 @@ jobs:
           persist-credentials: false
           path: platform
           token: ${{ secrets.PLATFORM_READ_TOKEN || github.token }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
       - run: python -m pip install --require-hashes -r platform/requirements.lock
